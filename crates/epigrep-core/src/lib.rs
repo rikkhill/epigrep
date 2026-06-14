@@ -91,6 +91,120 @@ impl Pattern {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct CompiledPattern {
+    steps: Vec<CompiledStep>,
+    consumption: MatchConsumption,
+}
+
+impl CompiledPattern {
+    pub fn compile(pattern: &Pattern) -> Self {
+        validate_pattern(pattern);
+
+        Self {
+            steps: pattern
+                .steps
+                .iter()
+                .map(|step| CompiledStep {
+                    atom: step.atom.clone(),
+                    transition_from_previous: step.transition_from_previous.clone(),
+                })
+                .collect(),
+            consumption: pattern.consumption,
+        }
+    }
+
+    pub fn matches(&self, events: &[Event]) -> Vec<Match> {
+        let mut matches = Vec::new();
+        let mut partition_start = 0;
+        while partition_start < events.len() {
+            let partition = &events[partition_start].partition;
+            let partition_end = events[partition_start..]
+                .iter()
+                .position(|event| event.partition != *partition)
+                .map_or(events.len(), |offset| partition_start + offset);
+
+            matches.extend(self.match_partition(events, partition_start, partition_end));
+            partition_start = partition_end;
+        }
+
+        matches
+    }
+
+    fn match_partition(
+        &self,
+        events: &[Event],
+        partition_start: usize,
+        partition_end: usize,
+    ) -> Vec<Match> {
+        let mut matches = Vec::new();
+
+        for start_index in partition_start..partition_end {
+            if !self.steps[0].atom.matches(&events[start_index]) {
+                continue;
+            }
+
+            let paths = self.extend_path(events, partition_end, 1, vec![start_index]);
+
+            for participating_indices in paths {
+                let first = participating_indices[0];
+                let last = *participating_indices.last().expect("path is non-empty");
+                matches.push(Match {
+                    partition: events[first].partition.clone(),
+                    participating_indices,
+                    start_timestamp: events[first].timestamp,
+                    end_timestamp: events[last].timestamp,
+                });
+            }
+        }
+
+        matches
+    }
+
+    fn extend_path(
+        &self,
+        events: &[Event],
+        partition_end: usize,
+        step_index: usize,
+        path: Vec<EventIndex>,
+    ) -> Vec<Vec<EventIndex>> {
+        if step_index == self.steps.len() {
+            return vec![path];
+        }
+
+        let previous_index = *path.last().expect("path is non-empty");
+        let step = &self.steps[step_index];
+        let transition = step
+            .transition_from_previous
+            .as_ref()
+            .expect("transition exists after first step");
+
+        let mut paths = Vec::new();
+        for candidate_index in previous_index + 1..partition_end {
+            if transition_allows(events, previous_index, candidate_index, transition)
+                && step.atom.matches(&events[candidate_index])
+            {
+                let mut next_path = path.clone();
+                next_path.push(candidate_index);
+                paths.extend(self.extend_path(events, partition_end, step_index + 1, next_path));
+
+                if self.consumption == MatchConsumption::FirstSuccessorPerStart && !paths.is_empty()
+                {
+                    break;
+                }
+            }
+        }
+
+        paths
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct CompiledStep {
+    atom: Atom,
+    transition_from_previous: Option<Transition>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Step {
     pub atom: Atom,
     pub transition_from_previous: Option<Transition>,
@@ -258,7 +372,7 @@ pub fn oracle_matches(events: &[Event], pattern: &Pattern) -> Vec<Match> {
 }
 
 pub fn compiled_matches(events: &[Event], pattern: &Pattern) -> Vec<Match> {
-    oracle_matches(events, pattern)
+    CompiledPattern::compile(pattern).matches(events)
 }
 
 pub fn is_sorted_by_partition_time_index(events: &[Event]) -> bool {
@@ -669,6 +783,18 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn compiled_pattern_can_be_reused_across_event_streams() {
+        let pattern = sequence("A", "B", Transition::any().within(5));
+        let compiled = CompiledPattern::compile(&pattern);
+
+        let first_stream = vec![Event::new("p", 0, "A"), Event::new("p", 5, "B")];
+        let second_stream = vec![Event::new("p", 0, "A"), Event::new("p", 6, "B")];
+
+        assert_eq!(indices(&compiled.matches(&first_stream)), vec![vec![0, 1]]);
+        assert!(compiled.matches(&second_stream).is_empty());
     }
 }
 

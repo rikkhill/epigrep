@@ -7,3 +7,6 @@ repository.workspace = true
 
 [lib]
 path = "src/lib.rs"
+
+[dev-dependencies]
+proptest = "1.6.0"

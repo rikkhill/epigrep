@@ -671,3 +671,62 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn event_strategy() -> impl Strategy<Value = Event> {
+        (0_i64..=8, prop_oneof![Just("A"), Just("B"), Just("C")])
+            .prop_map(|(timestamp, event_type)| Event::new("p", timestamp, event_type))
+    }
+
+    fn stream_strategy() -> impl Strategy<Value = Vec<Event>> {
+        prop::collection::vec(event_strategy(), 0..=12).prop_map(|mut events| {
+            events.sort_by_key(|event| event.timestamp);
+            events
+        })
+    }
+
+    fn pattern_strategy() -> impl Strategy<Value = Pattern> {
+        (
+            prop_oneof![Just("A"), Just("B"), Just("C")],
+            prop_oneof![Just("A"), Just("B"), Just("C")],
+            prop::option::of(0_i64..=4),
+            prop::option::of(prop_oneof![Just("A"), Just("B"), Just("C")]),
+            prop_oneof![
+                Just(MatchConsumption::FirstSuccessorPerStart),
+                Just(MatchConsumption::ExhaustivePerStart),
+            ],
+        )
+            .prop_map(|(first, second, max_elapsed, absent_type, consumption)| {
+                let mut transition = Transition::any();
+                if let Some(max_elapsed) = max_elapsed {
+                    transition = transition.within(max_elapsed);
+                }
+                if let Some(absent_type) = absent_type {
+                    transition = transition.with_absence(Atom::event_type(absent_type));
+                }
+
+                Pattern::sequence(vec![
+                    Step::first(Atom::event_type(first)),
+                    Step::then(Atom::event_type(second), transition),
+                ])
+                .with_consumption(consumption)
+            })
+    }
+
+    proptest! {
+        #[test]
+        fn compiled_matches_oracle_for_generated_streams_and_patterns(
+            events in stream_strategy(),
+            pattern in pattern_strategy(),
+        ) {
+            prop_assert_eq!(
+                compiled_matches(&events, &pattern),
+                oracle_matches(&events, &pattern)
+            );
+        }
+    }
+}

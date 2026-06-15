@@ -1046,43 +1046,140 @@ mod property_tests {
     use proptest::prelude::*;
 
     fn event_strategy() -> impl Strategy<Value = Event> {
-        (0_i64..=8, prop_oneof![Just("A"), Just("B"), Just("C")])
-            .prop_map(|(timestamp, event_type)| Event::new("p", timestamp, event_type))
+        (
+            prop_oneof![Just("p1"), Just("p2")],
+            0_i64..=8,
+            prop_oneof![Just("A"), Just("B"), Just("C")],
+            prop::option::of(0_i64..=5),
+            prop::option::of(prop_oneof![Just("u1"), Just("u2"), Just("u3")]),
+        )
+            .prop_map(|(partition, timestamp, event_type, score, user_id)| {
+                let mut event = Event::new(partition, timestamp, event_type);
+                if let Some(score) = score {
+                    event = event.with_attr("score", score.into());
+                }
+                if let Some(user_id) = user_id {
+                    event = event.with_attr("user_id", user_id.into());
+                }
+                event
+            })
     }
 
     fn stream_strategy() -> impl Strategy<Value = Vec<Event>> {
         prop::collection::vec(event_strategy(), 0..=12).prop_map(|mut events| {
-            events.sort_by_key(|event| event.timestamp);
+            events.sort_by(|left, right| {
+                left.partition
+                    .cmp(&right.partition)
+                    .then(left.timestamp.cmp(&right.timestamp))
+            });
             events
         })
     }
 
-    fn pattern_strategy() -> impl Strategy<Value = Pattern> {
+    fn atom_strategy() -> impl Strategy<Value = Atom> {
         (
             prop_oneof![Just("A"), Just("B"), Just("C")],
+            any::<bool>(),
+            any::<bool>(),
+            any::<bool>(),
+            any::<bool>(),
+        )
+            .prop_map(
+                |(event_type, require_score, capture_user, reference_user, reference_score)| {
+                    let mut atom = Atom::event_type(event_type);
+                    if require_score {
+                        atom = atom.with_predicate(Predicate::new(
+                            "score",
+                            ComparisonOperator::Gte,
+                            2_i64,
+                        ));
+                    }
+                    if capture_user {
+                        atom = atom.with_capture(Capture::new("user", "user_id"));
+                    }
+                    if reference_user {
+                        atom = atom.with_reference_predicate(ReferencePredicate::new(
+                            "user_id",
+                            ComparisonOperator::Eq,
+                            "user",
+                        ));
+                    }
+                    if reference_score {
+                        atom = atom.with_reference_predicate(ReferencePredicate::new(
+                            "score",
+                            ComparisonOperator::Gte,
+                            "score",
+                        ));
+                    }
+                    atom
+                },
+            )
+    }
+
+    fn absent_atom_strategy() -> impl Strategy<Value = Atom> {
+        (
             prop_oneof![Just("A"), Just("B"), Just("C")],
+            any::<bool>(),
+            any::<bool>(),
+        )
+            .prop_map(|(event_type, require_score, reference_user)| {
+                let mut atom = Atom::event_type(event_type);
+                if require_score {
+                    atom = atom.with_predicate(Predicate::new(
+                        "score",
+                        ComparisonOperator::Gte,
+                        2_i64,
+                    ));
+                }
+                if reference_user {
+                    atom = atom.with_reference_predicate(ReferencePredicate::new(
+                        "user_id",
+                        ComparisonOperator::Eq,
+                        "user",
+                    ));
+                }
+                atom
+            })
+    }
+
+    fn transition_strategy() -> impl Strategy<Value = Transition> {
+        (
             prop::option::of(0_i64..=4),
-            prop::option::of(prop_oneof![Just("A"), Just("B"), Just("C")]),
+            prop::option::of(absent_atom_strategy()),
+        )
+            .prop_map(|(max_elapsed, absent_atom)| {
+                let mut transition = Transition::any();
+                if let Some(max_elapsed) = max_elapsed {
+                    transition = transition.within(max_elapsed);
+                }
+                if let Some(absent_atom) = absent_atom {
+                    transition = transition.with_absence(absent_atom);
+                }
+                transition
+            })
+    }
+
+    fn pattern_strategy() -> impl Strategy<Value = Pattern> {
+        (
+            atom_strategy(),
+            atom_strategy(),
+            prop::option::of(atom_strategy()),
+            transition_strategy(),
+            transition_strategy(),
             prop_oneof![
                 Just(MatchConsumption::FirstSuccessorPerStart),
                 Just(MatchConsumption::ExhaustivePerStart),
             ],
         )
-            .prop_map(|(first, second, max_elapsed, absent_type, consumption)| {
-                let mut transition = Transition::any();
-                if let Some(max_elapsed) = max_elapsed {
-                    transition = transition.within(max_elapsed);
-                }
-                if let Some(absent_type) = absent_type {
-                    transition = transition.with_absence(Atom::event_type(absent_type));
-                }
-
-                Pattern::sequence(vec![
-                    Step::first(Atom::event_type(first)),
-                    Step::then(Atom::event_type(second), transition),
-                ])
-                .with_consumption(consumption)
-            })
+            .prop_map(
+                |(first, second, third, first_transition, second_transition, consumption)| {
+                    let mut steps = vec![Step::first(first), Step::then(second, first_transition)];
+                    if let Some(third) = third {
+                        steps.push(Step::then(third, second_transition));
+                    }
+                    Pattern::sequence(steps).with_consumption(consumption)
+                },
+            )
     }
 
     proptest! {

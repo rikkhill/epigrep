@@ -1,0 +1,551 @@
+use crate::*;
+
+fn atom(event_type: &str) -> Atom {
+    Atom::event_type(event_type)
+}
+
+fn sequence(first: &str, second: &str, transition: Transition) -> Pattern {
+    Pattern::sequence(vec![
+        Step::first(atom(first)),
+        Step::then(atom(second), transition),
+    ])
+}
+
+fn indices(matches: &[Match]) -> Vec<Vec<EventIndex>> {
+    matches
+        .iter()
+        .map(|match_| match_.participating_indices.clone())
+        .collect()
+}
+
+#[test]
+fn matches_independently_within_each_partition() {
+    let events = vec![
+        Event::new("child-1", 0, "A"),
+        Event::new("child-1", 1, "B"),
+        Event::new("child-2", 0, "A"),
+        Event::new("child-2", 1, "noise"),
+        Event::new("child-2", 2, "B"),
+    ];
+    let pattern = sequence("A", "B", Transition::any());
+
+    assert_eq!(
+        indices(&oracle_matches(&events, &pattern)),
+        vec![vec![0, 1], vec![2, 4]]
+    );
+    assert_eq!(
+        oracle_matches(&events, &pattern),
+        compiled_matches(&events, &pattern)
+    );
+}
+
+#[test]
+fn window_boundary_is_inclusive() {
+    let events = vec![Event::new("p", 10, "A"), Event::new("p", 15, "B")];
+    let pattern = sequence("A", "B", Transition::any().within(5));
+
+    assert_eq!(
+        indices(&oracle_matches(&events, &pattern)),
+        vec![vec![0, 1]]
+    );
+}
+
+#[test]
+fn window_excludes_events_after_the_boundary() {
+    let events = vec![Event::new("p", 10, "A"), Event::new("p", 16, "B")];
+    let pattern = sequence("A", "B", Transition::any().within(5));
+
+    assert!(oracle_matches(&events, &pattern).is_empty());
+}
+
+#[test]
+fn same_timestamp_order_uses_input_index_tie_breaking() {
+    let events = vec![
+        Event::new("p", 10, "A"),
+        Event::new("p", 10, "B"),
+        Event::new("p", 10, "A"),
+    ];
+    let pattern = sequence("A", "B", Transition::any().within(0));
+
+    assert_eq!(
+        indices(&oracle_matches(&events, &pattern)),
+        vec![vec![0, 1]]
+    );
+}
+
+#[test]
+fn absence_between_blocks_same_timestamp_event_ordered_between_a_and_b() {
+    let events = vec![
+        Event::new("p", 10, "A"),
+        Event::new("p", 10, "C"),
+        Event::new("p", 10, "B"),
+    ];
+    let pattern = sequence("A", "B", Transition::any().with_absence(atom("C")));
+
+    assert!(oracle_matches(&events, &pattern).is_empty());
+}
+
+#[test]
+fn absence_between_blocks_event_at_b_timestamp_ordered_before_b() {
+    let events = vec![
+        Event::new("p", 9, "A"),
+        Event::new("p", 10, "C"),
+        Event::new("p", 10, "B"),
+    ];
+    let pattern = sequence("A", "B", Transition::any().with_absence(atom("C")));
+
+    assert!(oracle_matches(&events, &pattern).is_empty());
+}
+
+#[test]
+fn absence_between_ignores_same_timestamp_event_outside_ordered_interval() {
+    let events = vec![
+        Event::new("p", 10, "C"),
+        Event::new("p", 10, "A"),
+        Event::new("p", 10, "B"),
+        Event::new("p", 10, "C"),
+    ];
+    let pattern = sequence("A", "B", Transition::any().with_absence(atom("C")));
+
+    assert_eq!(
+        indices(&oracle_matches(&events, &pattern)),
+        vec![vec![1, 2]]
+    );
+}
+
+#[test]
+fn absence_between_respects_absent_atom_predicates() {
+    let events = vec![
+        Event::new("p", 0, "A"),
+        Event::new("p", 1, "C").with_attr("kind", "allowed".into()),
+        Event::new("p", 2, "B"),
+    ];
+    let absent =
+        atom("C").with_predicate(Predicate::new("kind", ComparisonOperator::Eq, "blocked"));
+    let pattern = sequence("A", "B", Transition::any().with_absence(absent));
+
+    assert_eq!(
+        indices(&oracle_matches(&events, &pattern)),
+        vec![vec![0, 2]]
+    );
+}
+
+#[test]
+fn returns_overlapping_matches_by_start_position() {
+    let events = vec![
+        Event::new("p", 0, "A"),
+        Event::new("p", 1, "A"),
+        Event::new("p", 2, "B"),
+    ];
+    let pattern = sequence("A", "B", Transition::any());
+
+    assert_eq!(
+        indices(&oracle_matches(&events, &pattern)),
+        vec![vec![0, 2], vec![1, 2]]
+    );
+}
+
+#[test]
+fn exhaustive_consumption_returns_every_successor_per_start() {
+    let events = vec![
+        Event::new("p", 0, "A"),
+        Event::new("p", 1, "B"),
+        Event::new("p", 2, "B"),
+    ];
+    let pattern = sequence("A", "B", Transition::any())
+        .with_consumption(MatchConsumption::ExhaustivePerStart);
+
+    assert_eq!(
+        indices(&oracle_matches(&events, &pattern)),
+        vec![vec![0, 1], vec![0, 2]]
+    );
+}
+
+#[test]
+fn predicates_filter_event_atoms() {
+    let events = vec![
+        Event::new("p", 0, "A"),
+        Event::new("p", 1, "B").with_attr("score", 2_i64.into()),
+        Event::new("p", 2, "B").with_attr("score", 4_i64.into()),
+    ];
+    let pattern = Pattern::sequence(vec![
+        Step::first(atom("A")),
+        Step::then(
+            atom("B").with_predicate(Predicate::new("score", ComparisonOperator::Gt, 3_i64)),
+            Transition::any(),
+        ),
+    ]);
+
+    assert_eq!(
+        indices(&oracle_matches(&events, &pattern)),
+        vec![vec![0, 2]]
+    );
+}
+
+#[test]
+fn care_pathway_shaped_example() {
+    let events = vec![
+        Event::new("child-1", 0, "entered_care"),
+        Event::new("child-1", 2, "placement_change"),
+        Event::new("child-1", 5, "safeguarding_flag").with_attr("severity", 4_i64.into()),
+        Event::new("child-2", 0, "entered_care"),
+        Event::new("child-2", 7, "safeguarding_flag").with_attr("severity", 4_i64.into()),
+    ];
+    let pattern = Pattern::sequence(vec![
+        Step::first(atom("entered_care")),
+        Step::then(
+            atom("safeguarding_flag").with_predicate(Predicate::new(
+                "severity",
+                ComparisonOperator::Gte,
+                3_i64,
+            )),
+            Transition::any()
+                .within(5)
+                .with_absence(atom("placement_change")),
+        ),
+    ]);
+
+    assert_eq!(
+        indices(&oracle_matches(&events, &pattern)),
+        Vec::<Vec<usize>>::new()
+    );
+}
+
+#[test]
+fn log_trace_shaped_example() {
+    let events = vec![
+        Event::new("node-a", 0, "config_reload"),
+        Event::new("node-a", 60, "heartbeat"),
+        Event::new("node-a", 119, "oom_killed").with_attr("pod", "api".into()),
+        Event::new("node-b", 0, "config_reload"),
+        Event::new("node-b", 121, "oom_killed").with_attr("pod", "worker".into()),
+    ];
+    let pattern = Pattern::sequence(vec![
+        Step::first(atom("config_reload")),
+        Step::then(atom("oom_killed"), Transition::any().within(120)),
+    ]);
+
+    assert_eq!(
+        indices(&oracle_matches(&events, &pattern)),
+        vec![vec![0, 2]]
+    );
+}
+
+#[test]
+fn capture_binding_requires_later_reference_equality() {
+    let events = vec![
+        Event::new("p", 0, "A").with_attr("user_id", "u1".into()),
+        Event::new("p", 1, "B").with_attr("user_id", "u2".into()),
+        Event::new("p", 2, "B").with_attr("user_id", "u1".into()),
+    ];
+    let pattern = Pattern::sequence(vec![
+        Step::first(atom("A").with_capture(Capture::new("a_user", "user_id"))),
+        Step::then(
+            atom("B").with_reference_predicate(ReferencePredicate::new(
+                "user_id",
+                ComparisonOperator::Eq,
+                "a_user",
+            )),
+            Transition::any(),
+        ),
+    ]);
+
+    let matches = oracle_matches(&events, &pattern);
+
+    assert_eq!(indices(&matches), vec![vec![0, 2]]);
+    assert_eq!(
+        matches[0].bindings.get("a_user"),
+        Some(&Value::String("u1".to_owned()))
+    );
+    assert_eq!(matches, compiled_matches(&events, &pattern));
+}
+
+#[test]
+fn reference_predicate_without_a_binding_does_not_match() {
+    let events = vec![
+        Event::new("p", 0, "A"),
+        Event::new("p", 1, "B").with_attr("user_id", "u1".into()),
+    ];
+    let pattern = Pattern::sequence(vec![
+        Step::first(atom("A")),
+        Step::then(
+            atom("B").with_reference_predicate(ReferencePredicate::new(
+                "user_id",
+                ComparisonOperator::Eq,
+                "a_user",
+            )),
+            Transition::any(),
+        ),
+    ]);
+
+    assert!(oracle_matches(&events, &pattern).is_empty());
+    assert_eq!(
+        oracle_matches(&events, &pattern),
+        compiled_matches(&events, &pattern)
+    );
+}
+
+#[test]
+fn recapturing_existing_binding_requires_the_same_value() {
+    let events = vec![
+        Event::new("p", 0, "A").with_attr("user_id", "u1".into()),
+        Event::new("p", 1, "B").with_attr("user_id", "u2".into()),
+        Event::new("p", 2, "B").with_attr("user_id", "u1".into()),
+    ];
+    let pattern = Pattern::sequence(vec![
+        Step::first(atom("A").with_capture(Capture::new("user", "user_id"))),
+        Step::then(
+            atom("B").with_capture(Capture::new("user", "user_id")),
+            Transition::any(),
+        ),
+    ]);
+
+    assert_eq!(
+        indices(&oracle_matches(&events, &pattern)),
+        vec![vec![0, 2]]
+    );
+}
+
+#[test]
+fn absence_guard_can_use_a_captured_binding() {
+    let events = vec![
+        Event::new("p", 0, "A").with_attr("user_id", "u1".into()),
+        Event::new("p", 1, "C").with_attr("user_id", "u2".into()),
+        Event::new("p", 2, "B").with_attr("user_id", "u1".into()),
+        Event::new("p", 3, "A").with_attr("user_id", "u3".into()),
+        Event::new("p", 4, "C").with_attr("user_id", "u3".into()),
+        Event::new("p", 5, "B").with_attr("user_id", "u3".into()),
+    ];
+    let absent = atom("C").with_reference_predicate(ReferencePredicate::new(
+        "user_id",
+        ComparisonOperator::Eq,
+        "user",
+    ));
+    let pattern = Pattern::sequence(vec![
+        Step::first(atom("A").with_capture(Capture::new("user", "user_id"))),
+        Step::then(
+            atom("B").with_reference_predicate(ReferencePredicate::new(
+                "user_id",
+                ComparisonOperator::Eq,
+                "user",
+            )),
+            Transition::any().with_absence(absent),
+        ),
+    ])
+    .with_consumption(MatchConsumption::ExhaustivePerStart);
+
+    assert_eq!(
+        indices(&oracle_matches(&events, &pattern)),
+        vec![vec![0, 2]]
+    );
+    assert_eq!(
+        oracle_matches(&events, &pattern),
+        compiled_matches(&events, &pattern)
+    );
+}
+
+#[test]
+fn compiled_matcher_matches_oracle_for_small_generated_streams() {
+    let event_types = ["A", "B", "C"];
+    let patterns = vec![
+        sequence("A", "B", Transition::any()),
+        sequence("A", "B", Transition::any().within(1)),
+        sequence("A", "B", Transition::any().with_absence(atom("C"))),
+        sequence(
+            "A",
+            "B",
+            Transition::any().within(2).with_absence(atom("C")),
+        ),
+        sequence("A", "B", Transition::any())
+            .with_consumption(MatchConsumption::ExhaustivePerStart),
+    ];
+
+    for stream_len in 0..=4 {
+        let stream_count = event_types.len().pow(stream_len);
+        for stream_id in 0..stream_count {
+            let mut remaining = stream_id;
+            let mut events = Vec::new();
+
+            for index in 0..stream_len {
+                let event_type = event_types[remaining % event_types.len()];
+                remaining /= event_types.len();
+                events.push(Event::new("p", index as Timestamp / 2, event_type));
+            }
+
+            for pattern in &patterns {
+                assert_eq!(
+                    oracle_matches(&events, pattern),
+                    compiled_matches(&events, pattern),
+                    "events: {events:?}, pattern: {pattern:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn compiled_pattern_can_be_reused_across_event_streams() {
+    let pattern = sequence("A", "B", Transition::any().within(5));
+    let compiled = CompiledPattern::compile(&pattern);
+
+    let first_stream = vec![Event::new("p", 0, "A"), Event::new("p", 5, "B")];
+    let second_stream = vec![Event::new("p", 0, "A"), Event::new("p", 6, "B")];
+
+    assert_eq!(indices(&compiled.matches(&first_stream)), vec![vec![0, 1]]);
+    assert!(compiled.matches(&second_stream).is_empty());
+}
+
+mod property_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn event_strategy() -> impl Strategy<Value = Event> {
+        (
+            prop_oneof![Just("p1"), Just("p2")],
+            0_i64..=8,
+            prop_oneof![Just("A"), Just("B"), Just("C")],
+            prop::option::of(0_i64..=5),
+            prop::option::of(prop_oneof![Just("u1"), Just("u2"), Just("u3")]),
+        )
+            .prop_map(|(partition, timestamp, event_type, score, user_id)| {
+                let mut event = Event::new(partition, timestamp, event_type);
+                if let Some(score) = score {
+                    event = event.with_attr("score", score.into());
+                }
+                if let Some(user_id) = user_id {
+                    event = event.with_attr("user_id", user_id.into());
+                }
+                event
+            })
+    }
+
+    fn stream_strategy() -> impl Strategy<Value = Vec<Event>> {
+        prop::collection::vec(event_strategy(), 0..=12).prop_map(|mut events| {
+            events.sort_by(|left, right| {
+                left.partition
+                    .cmp(&right.partition)
+                    .then(left.timestamp.cmp(&right.timestamp))
+            });
+            events
+        })
+    }
+
+    fn atom_strategy() -> impl Strategy<Value = Atom> {
+        (
+            prop_oneof![Just("A"), Just("B"), Just("C")],
+            any::<bool>(),
+            any::<bool>(),
+            any::<bool>(),
+            any::<bool>(),
+        )
+            .prop_map(
+                |(event_type, require_score, capture_user, reference_user, reference_score)| {
+                    let mut atom = Atom::event_type(event_type);
+                    if require_score {
+                        atom = atom.with_predicate(Predicate::new(
+                            "score",
+                            ComparisonOperator::Gte,
+                            2_i64,
+                        ));
+                    }
+                    if capture_user {
+                        atom = atom.with_capture(Capture::new("user", "user_id"));
+                    }
+                    if reference_user {
+                        atom = atom.with_reference_predicate(ReferencePredicate::new(
+                            "user_id",
+                            ComparisonOperator::Eq,
+                            "user",
+                        ));
+                    }
+                    if reference_score {
+                        atom = atom.with_reference_predicate(ReferencePredicate::new(
+                            "score",
+                            ComparisonOperator::Gte,
+                            "score",
+                        ));
+                    }
+                    atom
+                },
+            )
+    }
+
+    fn absent_atom_strategy() -> impl Strategy<Value = Atom> {
+        (
+            prop_oneof![Just("A"), Just("B"), Just("C")],
+            any::<bool>(),
+            any::<bool>(),
+        )
+            .prop_map(|(event_type, require_score, reference_user)| {
+                let mut atom = Atom::event_type(event_type);
+                if require_score {
+                    atom = atom.with_predicate(Predicate::new(
+                        "score",
+                        ComparisonOperator::Gte,
+                        2_i64,
+                    ));
+                }
+                if reference_user {
+                    atom = atom.with_reference_predicate(ReferencePredicate::new(
+                        "user_id",
+                        ComparisonOperator::Eq,
+                        "user",
+                    ));
+                }
+                atom
+            })
+    }
+
+    fn transition_strategy() -> impl Strategy<Value = Transition> {
+        (
+            prop::option::of(0_i64..=4),
+            prop::option::of(absent_atom_strategy()),
+        )
+            .prop_map(|(max_elapsed, absent_atom)| {
+                let mut transition = Transition::any();
+                if let Some(max_elapsed) = max_elapsed {
+                    transition = transition.within(max_elapsed);
+                }
+                if let Some(absent_atom) = absent_atom {
+                    transition = transition.with_absence(absent_atom);
+                }
+                transition
+            })
+    }
+
+    fn pattern_strategy() -> impl Strategy<Value = Pattern> {
+        (
+            atom_strategy(),
+            atom_strategy(),
+            prop::option::of(atom_strategy()),
+            transition_strategy(),
+            transition_strategy(),
+            prop_oneof![
+                Just(MatchConsumption::FirstSuccessorPerStart),
+                Just(MatchConsumption::ExhaustivePerStart),
+            ],
+        )
+            .prop_map(
+                |(first, second, third, first_transition, second_transition, consumption)| {
+                    let mut steps = vec![Step::first(first), Step::then(second, first_transition)];
+                    if let Some(third) = third {
+                        steps.push(Step::then(third, second_transition));
+                    }
+                    Pattern::sequence(steps).with_consumption(consumption)
+                },
+            )
+    }
+
+    proptest! {
+        #[test]
+        fn compiled_matches_oracle_for_generated_streams_and_patterns(
+            events in stream_strategy(),
+            pattern in pattern_strategy(),
+        ) {
+            prop_assert_eq!(
+                compiled_matches(&events, &pattern),
+                oracle_matches(&events, &pattern)
+            );
+        }
+    }
+}

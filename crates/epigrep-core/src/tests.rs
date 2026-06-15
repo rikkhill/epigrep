@@ -395,6 +395,55 @@ fn compiled_pattern_can_be_reused_across_event_streams() {
     assert!(compiled.matches(&second_stream).is_empty());
 }
 
+#[test]
+fn parses_sequence_window_predicate_and_absence_subset() {
+    let pattern = parse_pattern(r#"A[score >= 2] -[<=5, no C[kind == "blocked"]]-> B"#)
+        .expect("pattern should parse");
+    let events = vec![
+        Event::new("p", 0, "A").with_attr("score", 3_i64.into()),
+        Event::new("p", 2, "C").with_attr("kind", "allowed".into()),
+        Event::new("p", 5, "B"),
+        Event::new("p", 6, "A").with_attr("score", 3_i64.into()),
+        Event::new("p", 7, "C").with_attr("kind", "blocked".into()),
+        Event::new("p", 8, "B"),
+    ];
+
+    assert_eq!(
+        indices(&oracle_matches(&events, &pattern)),
+        vec![vec![0, 2]]
+    );
+    assert_eq!(
+        oracle_matches(&events, &pattern),
+        compiled_matches(&events, &pattern)
+    );
+}
+
+#[test]
+fn parses_capture_and_reference_predicates() {
+    let pattern =
+        parse_pattern("A[user_id as $u] -> B[user_id == $u]").expect("pattern should parse");
+    let events = vec![
+        Event::new("p", 0, "A").with_attr("user_id", "u1".into()),
+        Event::new("p", 1, "B").with_attr("user_id", "u2".into()),
+        Event::new("p", 2, "B").with_attr("user_id", "u1".into()),
+    ];
+
+    let matches = oracle_matches(&events, &pattern);
+
+    assert_eq!(indices(&matches), vec![vec![0, 2]]);
+    assert_eq!(matches[0].bindings.get("u"), Some(&Value::from("u1")));
+}
+
+#[test]
+fn parser_rejects_unsupported_predicate_syntax() {
+    let error = parse_pattern("A[score ~= 2] -> B").expect_err("pattern should fail");
+
+    assert!(
+        error.message().contains("unsupported atom predicate"),
+        "{error}"
+    );
+}
+
 mod property_tests {
     use super::*;
     use proptest::prelude::*;

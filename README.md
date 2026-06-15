@@ -18,6 +18,8 @@ The initial `epigrep-core` crate supports:
 - inclusive time windows between participating events;
 - absence-between guards over stable event order;
 - capture/register equality across participating events;
+- a tiny Phase 1 parser for examples like
+  `A[user_id as $u] -[<=5, no C]-> B[user_id == $u]`;
 - explicit match consumption mode:
   - `FirstSuccessorPerStart` as the Phase 1 default;
   - `ExhaustivePerStart` for parity and future semantics work.

@@ -17,6 +17,7 @@ The initial `epigrep-core` crate supports:
 - non-contiguous sequence matching;
 - inclusive time windows between participating events;
 - absence-between guards over stable event order;
+- capture/register equality across participating events;
 - explicit match consumption mode:
   - `FirstSuccessorPerStart` as the Phase 1 default;
   - `ExhaustivePerStart` for parity and future semantics work.

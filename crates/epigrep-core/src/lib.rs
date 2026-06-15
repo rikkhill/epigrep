@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 pub type Timestamp = i64;
 pub type EventIndex = usize;
+pub type Bindings = BTreeMap<String, Value>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Event {
@@ -139,13 +140,16 @@ impl CompiledPattern {
         let mut matches = Vec::new();
 
         for start_index in partition_start..partition_end {
-            if !self.steps[0].atom.matches(&events[start_index]) {
+            let Some(bindings) = self.steps[0]
+                .atom
+                .evaluate(&events[start_index], &Bindings::new())
+            else {
                 continue;
-            }
+            };
 
-            let paths = self.extend_path(events, partition_end, 1, vec![start_index]);
+            let paths = self.extend_path(events, partition_end, 1, vec![start_index], bindings);
 
-            for participating_indices in paths {
+            for (participating_indices, bindings) in paths {
                 let first = participating_indices[0];
                 let last = *participating_indices.last().expect("path is non-empty");
                 matches.push(Match {
@@ -153,6 +157,7 @@ impl CompiledPattern {
                     participating_indices,
                     start_timestamp: events[first].timestamp,
                     end_timestamp: events[last].timestamp,
+                    bindings,
                 });
             }
         }
@@ -166,9 +171,10 @@ impl CompiledPattern {
         partition_end: usize,
         step_index: usize,
         path: Vec<EventIndex>,
-    ) -> Vec<Vec<EventIndex>> {
+        bindings: Bindings,
+    ) -> Vec<(Vec<EventIndex>, Bindings)> {
         if step_index == self.steps.len() {
-            return vec![path];
+            return vec![(path, bindings)];
         }
 
         let previous_index = *path.last().expect("path is non-empty");
@@ -180,12 +186,24 @@ impl CompiledPattern {
 
         let mut paths = Vec::new();
         for candidate_index in previous_index + 1..partition_end {
-            if transition_allows(events, previous_index, candidate_index, transition)
-                && step.atom.matches(&events[candidate_index])
+            if transition_allows(
+                events,
+                previous_index,
+                candidate_index,
+                transition,
+                &bindings,
+            ) && let Some(next_bindings) =
+                step.atom.evaluate(&events[candidate_index], &bindings)
             {
                 let mut next_path = path.clone();
                 next_path.push(candidate_index);
-                paths.extend(self.extend_path(events, partition_end, step_index + 1, next_path));
+                paths.extend(self.extend_path(
+                    events,
+                    partition_end,
+                    step_index + 1,
+                    next_path,
+                    next_bindings,
+                ));
 
                 if self.consumption == MatchConsumption::FirstSuccessorPerStart && !paths.is_empty()
                 {
@@ -230,6 +248,8 @@ impl Step {
 pub struct Atom {
     pub event_type: String,
     pub predicates: Vec<Predicate>,
+    pub reference_predicates: Vec<ReferencePredicate>,
+    pub captures: Vec<Capture>,
 }
 
 impl Atom {
@@ -237,6 +257,8 @@ impl Atom {
         Self {
             event_type: event_type.into(),
             predicates: Vec::new(),
+            reference_predicates: Vec::new(),
+            captures: Vec::new(),
         }
     }
 
@@ -245,12 +267,105 @@ impl Atom {
         self
     }
 
-    fn matches(&self, event: &Event) -> bool {
-        self.event_type == event.event_type
-            && self
-                .predicates
-                .iter()
-                .all(|predicate| predicate.matches(event))
+    pub fn with_reference_predicate(mut self, predicate: ReferencePredicate) -> Self {
+        self.reference_predicates.push(predicate);
+        self
+    }
+
+    pub fn with_capture(mut self, capture: Capture) -> Self {
+        self.captures.push(capture);
+        self
+    }
+
+    fn matches(&self, event: &Event, bindings: &Bindings) -> bool {
+        self.evaluate(event, bindings).is_some()
+    }
+
+    fn evaluate(&self, event: &Event, bindings: &Bindings) -> Option<Bindings> {
+        if self.event_type != event.event_type {
+            return None;
+        }
+
+        if !self
+            .predicates
+            .iter()
+            .all(|predicate| predicate.matches(event))
+        {
+            return None;
+        }
+
+        if !self
+            .reference_predicates
+            .iter()
+            .all(|predicate| predicate.matches(event, bindings))
+        {
+            return None;
+        }
+
+        let mut next_bindings = bindings.clone();
+        for capture in &self.captures {
+            let value = event
+                .attributes
+                .get(&capture.attribute)
+                .cloned()
+                .unwrap_or(Value::Null);
+
+            if let Some(existing) = next_bindings.get(&capture.name) {
+                if existing != &value {
+                    return None;
+                }
+            } else {
+                next_bindings.insert(capture.name.clone(), value);
+            }
+        }
+
+        Some(next_bindings)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Capture {
+    pub name: String,
+    pub attribute: String,
+}
+
+impl Capture {
+    pub fn new(name: impl Into<String>, attribute: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            attribute: attribute.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReferencePredicate {
+    pub attribute: String,
+    pub operator: ComparisonOperator,
+    pub binding: String,
+}
+
+impl ReferencePredicate {
+    pub fn new(
+        attribute: impl Into<String>,
+        operator: ComparisonOperator,
+        binding: impl Into<String>,
+    ) -> Self {
+        Self {
+            attribute: attribute.into(),
+            operator,
+            binding: binding.into(),
+        }
+    }
+
+    fn matches(&self, event: &Event, bindings: &Bindings) -> bool {
+        let Some(actual) = event.attributes.get(&self.attribute) else {
+            return false;
+        };
+        let Some(expected) = bindings.get(&self.binding) else {
+            return false;
+        };
+        self.operator.matches(actual, expected)
     }
 }
 
@@ -339,12 +454,13 @@ impl Transition {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Match {
     pub partition: String,
     pub participating_indices: Vec<EventIndex>,
     pub start_timestamp: Timestamp,
     pub end_timestamp: Timestamp,
+    pub bindings: Bindings,
 }
 
 pub fn oracle_matches(events: &[Event], pattern: &Pattern) -> Vec<Match> {
@@ -410,9 +526,12 @@ fn match_partition(
     let mut matches = Vec::new();
 
     for start_index in partition_start..partition_end {
-        if !pattern.steps[0].atom.matches(&events[start_index]) {
+        let Some(bindings) = pattern.steps[0]
+            .atom
+            .evaluate(&events[start_index], &Bindings::new())
+        else {
             continue;
-        }
+        };
 
         let paths = extend_path(
             events,
@@ -420,10 +539,11 @@ fn match_partition(
             pattern,
             1,
             vec![start_index],
+            bindings,
             pattern.consumption,
         );
 
-        for participating_indices in paths {
+        for (participating_indices, bindings) in paths {
             let first = participating_indices[0];
             let last = *participating_indices.last().expect("path is non-empty");
             matches.push(Match {
@@ -431,6 +551,7 @@ fn match_partition(
                 participating_indices,
                 start_timestamp: events[first].timestamp,
                 end_timestamp: events[last].timestamp,
+                bindings,
             });
         }
     }
@@ -444,10 +565,11 @@ fn extend_path(
     pattern: &Pattern,
     step_index: usize,
     path: Vec<EventIndex>,
+    bindings: Bindings,
     consumption: MatchConsumption,
-) -> Vec<Vec<EventIndex>> {
+) -> Vec<(Vec<EventIndex>, Bindings)> {
     if step_index == pattern.steps.len() {
-        return vec![path];
+        return vec![(path, bindings)];
     }
 
     let previous_index = *path.last().expect("path is non-empty");
@@ -459,8 +581,13 @@ fn extend_path(
 
     let mut paths = Vec::new();
     for candidate_index in previous_index + 1..partition_end {
-        if transition_allows(events, previous_index, candidate_index, transition)
-            && step.atom.matches(&events[candidate_index])
+        if transition_allows(
+            events,
+            previous_index,
+            candidate_index,
+            transition,
+            &bindings,
+        ) && let Some(next_bindings) = step.atom.evaluate(&events[candidate_index], &bindings)
         {
             let mut next_path = path.clone();
             next_path.push(candidate_index);
@@ -470,6 +597,7 @@ fn extend_path(
                 pattern,
                 step_index + 1,
                 next_path,
+                next_bindings,
                 consumption,
             ));
 
@@ -487,6 +615,7 @@ fn transition_allows(
     previous_index: EventIndex,
     candidate_index: EventIndex,
     transition: &Transition,
+    bindings: &Bindings,
 ) -> bool {
     let previous = &events[previous_index];
     let candidate = &events[candidate_index];
@@ -507,7 +636,7 @@ fn transition_allows(
             transition
                 .absence
                 .iter()
-                .any(|absent_atom| absent_atom.matches(event))
+                .any(|absent_atom| absent_atom.matches(event, bindings))
         })
 }
 
@@ -743,6 +872,119 @@ mod tests {
         assert_eq!(
             indices(&oracle_matches(&events, &pattern)),
             vec![vec![0, 2]]
+        );
+    }
+
+    #[test]
+    fn capture_binding_requires_later_reference_equality() {
+        let events = vec![
+            Event::new("p", 0, "A").with_attr("user_id", "u1".into()),
+            Event::new("p", 1, "B").with_attr("user_id", "u2".into()),
+            Event::new("p", 2, "B").with_attr("user_id", "u1".into()),
+        ];
+        let pattern = Pattern::sequence(vec![
+            Step::first(atom("A").with_capture(Capture::new("a_user", "user_id"))),
+            Step::then(
+                atom("B").with_reference_predicate(ReferencePredicate::new(
+                    "user_id",
+                    ComparisonOperator::Eq,
+                    "a_user",
+                )),
+                Transition::any(),
+            ),
+        ]);
+
+        let matches = oracle_matches(&events, &pattern);
+
+        assert_eq!(indices(&matches), vec![vec![0, 2]]);
+        assert_eq!(
+            matches[0].bindings.get("a_user"),
+            Some(&Value::String("u1".to_owned()))
+        );
+        assert_eq!(matches, compiled_matches(&events, &pattern));
+    }
+
+    #[test]
+    fn reference_predicate_without_a_binding_does_not_match() {
+        let events = vec![
+            Event::new("p", 0, "A"),
+            Event::new("p", 1, "B").with_attr("user_id", "u1".into()),
+        ];
+        let pattern = Pattern::sequence(vec![
+            Step::first(atom("A")),
+            Step::then(
+                atom("B").with_reference_predicate(ReferencePredicate::new(
+                    "user_id",
+                    ComparisonOperator::Eq,
+                    "a_user",
+                )),
+                Transition::any(),
+            ),
+        ]);
+
+        assert!(oracle_matches(&events, &pattern).is_empty());
+        assert_eq!(
+            oracle_matches(&events, &pattern),
+            compiled_matches(&events, &pattern)
+        );
+    }
+
+    #[test]
+    fn recapturing_existing_binding_requires_the_same_value() {
+        let events = vec![
+            Event::new("p", 0, "A").with_attr("user_id", "u1".into()),
+            Event::new("p", 1, "B").with_attr("user_id", "u2".into()),
+            Event::new("p", 2, "B").with_attr("user_id", "u1".into()),
+        ];
+        let pattern = Pattern::sequence(vec![
+            Step::first(atom("A").with_capture(Capture::new("user", "user_id"))),
+            Step::then(
+                atom("B").with_capture(Capture::new("user", "user_id")),
+                Transition::any(),
+            ),
+        ]);
+
+        assert_eq!(
+            indices(&oracle_matches(&events, &pattern)),
+            vec![vec![0, 2]]
+        );
+    }
+
+    #[test]
+    fn absence_guard_can_use_a_captured_binding() {
+        let events = vec![
+            Event::new("p", 0, "A").with_attr("user_id", "u1".into()),
+            Event::new("p", 1, "C").with_attr("user_id", "u2".into()),
+            Event::new("p", 2, "B").with_attr("user_id", "u1".into()),
+            Event::new("p", 3, "A").with_attr("user_id", "u3".into()),
+            Event::new("p", 4, "C").with_attr("user_id", "u3".into()),
+            Event::new("p", 5, "B").with_attr("user_id", "u3".into()),
+        ];
+        let absent = atom("C").with_reference_predicate(ReferencePredicate::new(
+            "user_id",
+            ComparisonOperator::Eq,
+            "user",
+        ));
+        let pattern = Pattern::sequence(vec![
+            Step::first(atom("A").with_capture(Capture::new("user", "user_id"))),
+            Step::then(
+                atom("B").with_reference_predicate(ReferencePredicate::new(
+                    "user_id",
+                    ComparisonOperator::Eq,
+                    "user",
+                )),
+                Transition::any().with_absence(absent),
+            ),
+        ])
+        .with_consumption(MatchConsumption::ExhaustivePerStart);
+
+        assert_eq!(
+            indices(&oracle_matches(&events, &pattern)),
+            vec![vec![0, 2]]
+        );
+        assert_eq!(
+            oracle_matches(&events, &pattern),
+            compiled_matches(&events, &pattern)
         );
     }
 

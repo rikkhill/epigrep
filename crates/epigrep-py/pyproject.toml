@@ -1,0 +1,19 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "epigrep"
+version = "0.1.0"
+description = "Python bindings and a Streamlit visual harness for the epigrep temporal event-pattern matcher."
+requires-python = ">=3.9"
+dependencies = ["pandas"]
+
+[project.optional-dependencies]
+demo = ["streamlit", "altair"]
+test = ["pytest"]
+
+[tool.maturin]
+module-name = "epigrep._core"
+python-source = "python"
+features = ["extension-module"]

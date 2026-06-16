@@ -1,5 +1,10 @@
 [workspace]
-members = ["crates/epigrep-core"]
+members = ["crates/epigrep-core", "crates/epigrep-py"]
+# epigrep-py is a Python extension built with maturin (which links against the
+# active interpreter). Keep it out of the default set so bare `cargo build`/
+# `cargo test`/`cargo clippy` target the pure-Rust core and never try to link
+# libpython. Build the bindings with `maturin develop` instead.
+default-members = ["crates/epigrep-core"]
 resolver = "3"
 
 [workspace.package]

@@ -1,0 +1,344 @@
+//! Python bindings for the epigrep temporal event-pattern matcher.
+//!
+//! This crate is a thin wrapper around `epigrep-core`. The Rust oracle and
+//! compiled matchers remain the semantic source of truth; this layer only
+//! marshals events, patterns, and matches across the Python boundary.
+
+// pyo3 0.22's #[pyfunction]/#[pymethods] expansions emit identity `.into()`
+// calls on PyErr that trip clippy::useless_conversion. The lint points at
+// macro-generated code and is not actionable from this crate's source.
+#![allow(clippy::useless_conversion)]
+
+use epigrep_core as core;
+use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::prelude::*;
+use pyo3::types::{PyBool, PyDict};
+
+/// Convert a Python attribute value into a core `Value`.
+///
+/// `bool` is checked before `int` because Python booleans are a subclass of
+/// `int` and would otherwise be silently coerced to integers.
+fn py_to_value(obj: &Bound<'_, PyAny>) -> PyResult<core::Value> {
+    if obj.is_none() {
+        return Ok(core::Value::Null);
+    }
+    if let Ok(value) = obj.downcast::<PyBool>() {
+        return Ok(core::Value::Bool(value.is_true()));
+    }
+    if let Ok(value) = obj.extract::<i64>() {
+        return Ok(core::Value::Int(value));
+    }
+    if let Ok(value) = obj.extract::<f64>() {
+        return Ok(core::Value::Float(value));
+    }
+    if let Ok(value) = obj.extract::<String>() {
+        return Ok(core::Value::String(value));
+    }
+    Err(PyTypeError::new_err(
+        "event attribute values must be str, int, float, bool, or None",
+    ))
+}
+
+/// Convert a core `Value` back into a Python object.
+fn value_to_py(py: Python<'_>, value: &core::Value) -> PyObject {
+    match value {
+        core::Value::String(value) => value.into_py(py),
+        core::Value::Int(value) => value.into_py(py),
+        core::Value::Float(value) => value.into_py(py),
+        core::Value::Bool(value) => value.into_py(py),
+        core::Value::Null => py.None(),
+    }
+}
+
+/// A single typed, timestamped event within a partition.
+#[pyclass(name = "Event")]
+#[derive(Clone)]
+struct PyEvent {
+    inner: core::Event,
+}
+
+#[pymethods]
+impl PyEvent {
+    #[new]
+    #[pyo3(signature = (partition, ts, typ, attrs = None))]
+    fn new(
+        partition: String,
+        ts: i64,
+        typ: String,
+        attrs: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<Self> {
+        let mut event = core::Event::new(partition, ts, typ);
+        if let Some(attrs) = attrs {
+            for (key, value) in attrs.iter() {
+                let key: String = key.extract()?;
+                event = event.with_attr(key, py_to_value(&value)?);
+            }
+        }
+        Ok(Self { inner: event })
+    }
+
+    #[getter]
+    fn partition(&self) -> &str {
+        &self.inner.partition
+    }
+
+    #[getter]
+    fn ts(&self) -> i64 {
+        self.inner.timestamp
+    }
+
+    #[getter]
+    fn typ(&self) -> &str {
+        &self.inner.event_type
+    }
+
+    #[getter]
+    fn attrs(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let dict = PyDict::new_bound(py);
+        for (key, value) in &self.inner.attributes {
+            dict.set_item(key, value_to_py(py, value))?;
+        }
+        Ok(dict.unbind())
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Event(partition={:?}, ts={}, typ={:?})",
+            self.inner.partition, self.inner.timestamp, self.inner.event_type
+        )
+    }
+}
+
+/// A compiled or parsed pattern, ready to match.
+#[pyclass(name = "Pattern")]
+#[derive(Clone)]
+struct PyPattern {
+    inner: core::Pattern,
+}
+
+#[pymethods]
+impl PyPattern {
+    /// Start a builder for a pattern whose first step matches `typ`.
+    #[staticmethod]
+    fn event(typ: String) -> PatternBuilder {
+        PatternBuilder {
+            steps: vec![core::Step::first(core::Atom::event_type(typ))],
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Pattern(steps={})", self.inner.steps.len())
+    }
+}
+
+/// A small fluent builder for the common sequence/window/absence subset.
+///
+/// Predicate- and capture-heavy patterns are better expressed with
+/// [`parse_pattern`]; this builder deliberately stays simple.
+#[pyclass]
+#[derive(Clone)]
+struct PatternBuilder {
+    steps: Vec<core::Step>,
+}
+
+#[pymethods]
+impl PatternBuilder {
+    /// Append a step matching `typ`, optionally within `within` time units of
+    /// the previous step and forbidding an intervening event of type `no`.
+    #[pyo3(signature = (typ, within = None, no = None))]
+    fn then(&self, typ: String, within: Option<i64>, no: Option<String>) -> PatternBuilder {
+        let mut transition = core::Transition::any();
+        if let Some(within) = within {
+            transition = transition.within(within);
+        }
+        if let Some(absent) = no {
+            transition = transition.with_absence(core::Atom::event_type(absent));
+        }
+        let mut steps = self.steps.clone();
+        steps.push(core::Step::then(core::Atom::event_type(typ), transition));
+        PatternBuilder { steps }
+    }
+
+    /// Finalise the builder into a [`PyPattern`].
+    fn build(&self) -> PyPattern {
+        PyPattern {
+            inner: core::Pattern::sequence(self.steps.clone()),
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("PatternBuilder(steps={})", self.steps.len())
+    }
+}
+
+/// A single match, carrying its participating events and captured bindings.
+#[pyclass(name = "Match")]
+#[derive(Clone)]
+struct PyMatch {
+    partition: String,
+    indices: Vec<usize>,
+    start: i64,
+    end: i64,
+    types: Vec<String>,
+    bindings: core::Bindings,
+    events: Vec<PyEvent>,
+}
+
+impl PyMatch {
+    fn from_core(value: &core::Match, events: &[core::Event]) -> Self {
+        let types = value
+            .participating_indices
+            .iter()
+            .map(|&index| events[index].event_type.clone())
+            .collect();
+        let participating = value
+            .participating_indices
+            .iter()
+            .map(|&index| PyEvent {
+                inner: events[index].clone(),
+            })
+            .collect();
+        Self {
+            partition: value.partition.clone(),
+            indices: value.participating_indices.clone(),
+            start: value.start_timestamp,
+            end: value.end_timestamp,
+            types,
+            bindings: value.bindings.clone(),
+            events: participating,
+        }
+    }
+}
+
+#[pymethods]
+impl PyMatch {
+    #[getter]
+    fn partition(&self) -> &str {
+        &self.partition
+    }
+
+    #[getter]
+    fn indices(&self) -> Vec<usize> {
+        self.indices.clone()
+    }
+
+    #[getter]
+    fn start(&self) -> i64 {
+        self.start
+    }
+
+    #[getter]
+    fn end(&self) -> i64 {
+        self.end
+    }
+
+    #[getter]
+    fn types(&self) -> Vec<String> {
+        self.types.clone()
+    }
+
+    #[getter]
+    fn events(&self) -> Vec<PyEvent> {
+        self.events.clone()
+    }
+
+    /// Captured bindings (registers) as a dict of name to value.
+    #[getter]
+    fn captures(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let captures = PyDict::new_bound(py);
+        for (key, value) in &self.bindings {
+            captures.set_item(key, value_to_py(py, value))?;
+        }
+        Ok(captures.unbind())
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Match(partition={:?}, indices={:?}, span=({}, {}))",
+            self.partition, self.indices, self.start, self.end
+        )
+    }
+}
+
+fn coerce_pattern(obj: &Bound<'_, PyAny>) -> PyResult<core::Pattern> {
+    if let Ok(pattern) = obj.extract::<PyPattern>() {
+        return Ok(pattern.inner);
+    }
+    if let Ok(builder) = obj.extract::<PatternBuilder>() {
+        return Ok(core::Pattern::sequence(builder.steps));
+    }
+    Err(PyTypeError::new_err(
+        "expected a Pattern, a pattern builder, or the result of parse_pattern()",
+    ))
+}
+
+/// Parse the Phase 1 text subset into a [`PyPattern`].
+#[pyfunction]
+fn parse_pattern(text: &str) -> PyResult<PyPattern> {
+    core::parse_pattern(text)
+        .map(|inner| PyPattern { inner })
+        .map_err(|error| PyValueError::new_err(error.message().to_string()))
+}
+
+/// Return a copy of `events` sorted by partition then `(timestamp, input order)`.
+#[pyfunction]
+fn sort_events(mut events: Vec<PyEvent>) -> Vec<PyEvent> {
+    // Stable sort so original input order remains the per-timestamp tie-break.
+    events.sort_by(|left, right| {
+        left.inner
+            .partition
+            .cmp(&right.inner.partition)
+            .then(left.inner.timestamp.cmp(&right.inner.timestamp))
+    });
+    events
+}
+
+/// Run a pattern over already-sorted events.
+///
+/// Raises `ValueError` if the events are not grouped by partition and sorted by
+/// `(timestamp, input order)`; callers should use the high-level `match`
+/// wrapper or [`sort_events`] first.
+#[pyfunction]
+#[pyo3(signature = (pattern, events, exhaustive = false, use_oracle = false))]
+fn match_events(
+    pattern: &Bound<'_, PyAny>,
+    events: Vec<PyEvent>,
+    exhaustive: bool,
+    use_oracle: bool,
+) -> PyResult<Vec<PyMatch>> {
+    let core_events: Vec<core::Event> = events.into_iter().map(|event| event.inner).collect();
+    if !core::is_sorted_by_partition_time_index(&core_events) {
+        return Err(PyValueError::new_err(
+            "events must be grouped by partition and sorted by (timestamp, input order); \
+             call sort_events first",
+        ));
+    }
+
+    let mut pattern = coerce_pattern(pattern)?;
+    if exhaustive {
+        pattern = pattern.with_consumption(core::MatchConsumption::ExhaustivePerStart);
+    }
+
+    let matches = if use_oracle {
+        core::oracle_matches(&core_events, &pattern)
+    } else {
+        core::compiled_matches(&core_events, &pattern)
+    };
+
+    Ok(matches
+        .iter()
+        .map(|value| PyMatch::from_core(value, &core_events))
+        .collect())
+}
+
+#[pymodule]
+fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_class::<PyEvent>()?;
+    module.add_class::<PyPattern>()?;
+    module.add_class::<PatternBuilder>()?;
+    module.add_class::<PyMatch>()?;
+    module.add_function(wrap_pyfunction!(parse_pattern, module)?)?;
+    module.add_function(wrap_pyfunction!(sort_events, module)?)?;
+    module.add_function(wrap_pyfunction!(match_events, module)?)?;
+    Ok(())
+}

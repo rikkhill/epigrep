@@ -1,0 +1,23 @@
+[package]
+name = "epigrep-py"
+version = "0.1.0"
+# Pinned to 2021 (not the workspace's 2024): pyo3 0.22's generated code is not
+# clean under edition 2024's unsafe_op_in_unsafe_fn lint.
+edition = "2021"
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "epigrep_py"
+# cdylib for the Python extension module built by maturin.
+crate-type = ["cdylib"]
+
+[dependencies]
+epigrep-core = { path = "../epigrep-core" }
+pyo3 = { version = "0.22", features = ["abi3-py39"] }
+
+[features]
+# maturin turns this on when building the wheel. Left off for plain
+# `cargo build`/`cargo test` at the workspace root so the cdylib links against a
+# discovered interpreter instead of failing on undefined Python symbols.
+extension-module = ["pyo3/extension-module"]

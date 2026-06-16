@@ -1,1 +1,9 @@
 /target/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.so
+*.egg-info/
+/dist/

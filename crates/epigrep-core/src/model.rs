@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 pub type Timestamp = i64;
@@ -53,22 +54,28 @@ impl From<i64> for Value {
     }
 }
 
+impl From<f64> for Value {
+    fn from(value: f64) -> Self {
+        Self::Float(value)
+    }
+}
+
 impl From<bool> for Value {
     fn from(value: bool) -> Self {
         Self::Bool(value)
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// How many continuations each candidate start emits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MatchConsumption {
+    /// Commit to the earliest successor satisfying each step and its transition;
+    /// a start yields at most one match. Phase 1 default.
+    #[default]
     FirstSuccessorPerStart,
+    /// Explore every satisfying successor at each step; a start may yield
+    /// multiple matches.
     ExhaustivePerStart,
-}
-
-impl Default for MatchConsumption {
-    fn default() -> Self {
-        Self::FirstSuccessorPerStart
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -278,24 +285,44 @@ pub enum ComparisonOperator {
 impl ComparisonOperator {
     fn matches(self, actual: &Value, expected: &Value) -> bool {
         match self {
-            Self::Eq => actual == expected,
-            Self::NotEq => actual != expected,
-            Self::Gt => compare_numbers(actual, expected).is_some_and(|ordering| ordering > 0.0),
-            Self::Gte => compare_numbers(actual, expected).is_some_and(|ordering| ordering >= 0.0),
-            Self::Lt => compare_numbers(actual, expected).is_some_and(|ordering| ordering < 0.0),
-            Self::Lte => compare_numbers(actual, expected).is_some_and(|ordering| ordering <= 0.0),
+            Self::Eq => values_equal(actual, expected),
+            Self::NotEq => !values_equal(actual, expected),
+            Self::Gt => compare_values(actual, expected) == Some(Ordering::Greater),
+            Self::Gte => matches!(
+                compare_values(actual, expected),
+                Some(Ordering::Greater | Ordering::Equal)
+            ),
+            Self::Lt => compare_values(actual, expected) == Some(Ordering::Less),
+            Self::Lte => matches!(
+                compare_values(actual, expected),
+                Some(Ordering::Less | Ordering::Equal)
+            ),
         }
     }
 }
 
-fn compare_numbers(actual: &Value, expected: &Value) -> Option<f64> {
-    Some(number(actual)? - number(expected)?)
+/// Equality used by `==`/`!=`. Numbers compare by value across `Int`/`Float`
+/// (so `1` equals `1.0`), keeping equality consistent with the ordering
+/// operators; all other values compare by exact variant.
+fn values_equal(actual: &Value, expected: &Value) -> bool {
+    match (actual, expected) {
+        (Value::Int(_) | Value::Float(_), Value::Int(_) | Value::Float(_)) => {
+            compare_values(actual, expected) == Some(Ordering::Equal)
+        }
+        _ => actual == expected,
+    }
 }
 
-fn number(value: &Value) -> Option<f64> {
-    match value {
-        Value::Int(value) => Some(*value as f64),
-        Value::Float(value) => Some(*value),
+/// Ordering between two numeric values. `Int`/`Int` is compared exactly to avoid
+/// the precision loss of an `f64` cast for large integers; mixed `Int`/`Float`
+/// falls back to `f64`. Non-numeric or `NaN` operands are incomparable
+/// (`None`), so every ordering comparison against them is false.
+fn compare_values(actual: &Value, expected: &Value) -> Option<Ordering> {
+    match (actual, expected) {
+        (Value::Int(left), Value::Int(right)) => Some(left.cmp(right)),
+        (Value::Float(left), Value::Float(right)) => left.partial_cmp(right),
+        (Value::Int(left), Value::Float(right)) => (*left as f64).partial_cmp(right),
+        (Value::Float(left), Value::Int(right)) => left.partial_cmp(&(*right as f64)),
         _ => None,
     }
 }

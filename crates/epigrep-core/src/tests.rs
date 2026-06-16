@@ -11,6 +11,10 @@ fn sequence(first: &str, second: &str, transition: Transition) -> Pattern {
     ])
 }
 
+fn single(predicate: Predicate) -> Pattern {
+    Pattern::sequence(vec![Step::first(atom("A").with_predicate(predicate))])
+}
+
 fn indices(matches: &[Match]) -> Vec<Vec<EventIndex>> {
     matches
         .iter()
@@ -597,4 +601,62 @@ mod property_tests {
             );
         }
     }
+}
+
+#[test]
+fn first_successor_commits_per_step_not_on_completion() {
+    // A -> B -> C with a <=1 window on B->C. The first B (idx 1) satisfies
+    // A->B but no C is reachable from it; a later B (idx 3) would complete.
+    let events = vec![
+        Event::new("p", 0, "A"),
+        Event::new("p", 0, "B"),
+        Event::new("p", 5, "C"),
+        Event::new("p", 5, "B"),
+        Event::new("p", 5, "C"),
+    ];
+    let pattern = Pattern::sequence(vec![
+        Step::first(atom("A")),
+        Step::then(atom("B"), Transition::any()),
+        Step::then(atom("C"), Transition::any().within(1)),
+    ]);
+
+    // First-successor commits to B@1 and then dead-ends, so there is no match.
+    // It must NOT backtrack to B@3 to manufacture a completion.
+    assert_eq!(
+        indices(&oracle_matches(&events, &pattern)),
+        Vec::<Vec<usize>>::new()
+    );
+    assert_eq!(
+        oracle_matches(&events, &pattern),
+        compiled_matches(&events, &pattern)
+    );
+}
+
+#[test]
+fn numeric_equality_and_ordering_agree_across_int_and_float() {
+    let events = vec![Event::new("p", 0, "A").with_attr("v", Value::Int(1))];
+
+    // `==`, `>=`, and `<=` must all treat Int(1) as equal to the float literal
+    // 1.0 — previously `==` used strict variant equality and disagreed.
+    for operator in [
+        ComparisonOperator::Eq,
+        ComparisonOperator::Gte,
+        ComparisonOperator::Lte,
+    ] {
+        let pattern = single(Predicate::new("v", operator, 1.0_f64));
+        assert_eq!(
+            indices(&oracle_matches(&events, &pattern)),
+            vec![vec![0]],
+            "Int(1) should satisfy {operator:?} 1.0"
+        );
+        assert_eq!(
+            oracle_matches(&events, &pattern),
+            compiled_matches(&events, &pattern)
+        );
+    }
+
+    // Cross-type comparison stays strict for non-numbers: an int is never equal
+    // to a string literal.
+    let pattern = single(Predicate::new("v", ComparisonOperator::Eq, "1"));
+    assert!(oracle_matches(&events, &pattern).is_empty());
 }

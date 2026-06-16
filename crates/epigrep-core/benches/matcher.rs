@@ -17,7 +17,7 @@ fn synthetic_events() -> Vec<Event> {
             };
 
             Event::new("partition-1", index, event_type)
-                .with_attr("score", ((index % 5) as i64).into())
+                .with_attr("score", (index % 5).into())
                 .with_attr("user_id", user.into())
         })
         .collect()

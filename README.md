@@ -24,9 +24,19 @@ The initial `epigrep-core` crate supports:
   - `FirstSuccessorPerStart` as the Phase 1 default;
   - `ExhaustivePerStart` for parity and future semantics work.
 
-The oracle matcher is the semantic source of truth. The compiled matcher entry
-point is present, but currently delegates to the same implementation until the
-test surface is broad enough to support optimisation work.
+There are two independent matcher backends:
+
+- the **oracle** (`oracle_matches`), a naive depth-first backtracking matcher
+  that is the executable semantic source of truth;
+- the **compiled** matcher (`CompiledPattern`), a forward NFA-style simulation
+  that sweeps each partition once, carrying in-flight partial matches as
+  "threads" with their own bindings, window anchor, and absence state.
+
+The two share only leaf predicate evaluation, not sequencing logic, so the
+property tests comparing them are a genuine cross-check rather than a tautology:
+a divergence is a real semantic bug. (Introducing the second backend already
+surfaced one — the first-successor consumption mode now commits to the earliest
+satisfying successor per step, rather than backtracking to find a completion.)
 
 ## Non-Goals For Phase 1
 

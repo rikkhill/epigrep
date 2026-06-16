@@ -25,6 +25,11 @@ impl std::fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
+// Known Phase 1 limitations: this tiny parser splits predicate lists on `,` and
+// locates transitions by scanning for `->`/`-[` outside `[...]`. It is not
+// quote-aware, so attribute values containing `]`, `,`, or `->`
+// (e.g. `name == "a,b"`) will mis-parse. A proper lexer is deferred; the AST and
+// builder API, not this surface, define the supported semantics.
 pub fn parse_pattern(input: &str) -> Result<Pattern, ParseError> {
     let mut rest = input.trim();
     if rest.is_empty() {

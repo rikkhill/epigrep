@@ -41,3 +41,31 @@ def matches_to_frame(matches) -> pd.DataFrame:
         rows,
         columns=["partition", "start", "end", "indices", "types", "captures"],
     )
+
+
+def near_misses_to_frame(near_misses) -> pd.DataFrame:
+    """Return a DataFrame with one row per near-miss."""
+    rows = [
+        {
+            "partition": near_miss.partition,
+            "start": near_miss.start_index,
+            "indices": list(near_miss.indices),
+            "reached_steps": near_miss.reached_steps,
+            "next_event_type": near_miss.next_event_type,
+            "reason": near_miss.reason,
+            "captures": dict(near_miss.captures),
+        }
+        for near_miss in near_misses
+    ]
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "partition",
+            "start",
+            "indices",
+            "reached_steps",
+            "next_event_type",
+            "reason",
+            "captures",
+        ],
+    )

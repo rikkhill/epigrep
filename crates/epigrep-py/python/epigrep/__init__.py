@@ -7,13 +7,15 @@ package is a thin, pandas-friendly wrapper plus demo data for the visual harness
 from ._core import (
     Event,
     Match,
+    NearMiss,
     Pattern,
     PatternBuilder,
     parse_pattern,
     sort_events,
 )
 from ._core import match_events as _match_events
-from .frame import events_to_frame, matches_to_frame
+from ._core import near_miss_events as _near_miss_events
+from .frame import events_to_frame, matches_to_frame, near_misses_to_frame
 
 
 def match(pattern, events, *, exhaustive=False, oracle=False, assume_sorted=False):
@@ -42,14 +44,30 @@ def match(pattern, events, *, exhaustive=False, oracle=False, assume_sorted=Fals
     return _match_events(pattern, events, exhaustive, oracle)
 
 
+def explain(pattern, events, *, assume_sorted=False):
+    """Return near-misses: starts that did not match, each with its deepest
+    partial path and the reason it could not continue.
+
+    Explanation is existence-based and independent of consumption mode: a start
+    is a near-miss only if no full match exists from it.
+    """
+    events = list(events)
+    if not assume_sorted:
+        events = sort_events(events)
+    return _near_miss_events(pattern, events)
+
+
 __all__ = [
     "Event",
     "Match",
+    "NearMiss",
     "Pattern",
     "PatternBuilder",
     "parse_pattern",
     "sort_events",
     "match",
+    "explain",
     "events_to_frame",
     "matches_to_frame",
+    "near_misses_to_frame",
 ]

@@ -1,7 +1,9 @@
+mod explain;
 mod matcher;
 mod model;
 mod parser;
 
+pub use explain::{NearMiss, NearMissReason, near_misses};
 pub use matcher::{
     CompiledPattern, compiled_matches, is_sorted_by_partition_time_index, oracle_matches,
 };

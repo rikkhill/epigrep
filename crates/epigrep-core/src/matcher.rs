@@ -246,7 +246,7 @@ pub fn is_sorted_by_partition_time_index(events: &[Event]) -> bool {
     })
 }
 
-fn validate_pattern(pattern: &Pattern) {
+pub(crate) fn validate_pattern(pattern: &Pattern) {
     assert!(
         !pattern.steps.is_empty(),
         "patterns must contain at least one step"
@@ -351,7 +351,7 @@ fn extend_path(
     paths
 }
 
-fn transition_allows(
+pub(crate) fn transition_allows(
     events: &[Event],
     previous_index: EventIndex,
     candidate_index: EventIndex,

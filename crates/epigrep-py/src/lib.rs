@@ -260,6 +260,106 @@ impl PyMatch {
     }
 }
 
+fn reason_str(reason: core::NearMissReason) -> &'static str {
+    match reason {
+        core::NearMissReason::PredicateFailed => "predicate_failed",
+        core::NearMissReason::AbsenceBlocked => "absence_blocked",
+        core::NearMissReason::WindowExceeded => "window_exceeded",
+        core::NearMissReason::NoSuccessor => "no_successor",
+    }
+}
+
+/// A start that did not match, with its deepest partial path and the reason.
+#[pyclass(name = "NearMiss")]
+#[derive(Clone)]
+struct PyNearMiss {
+    partition: String,
+    start_index: usize,
+    indices: Vec<usize>,
+    reached_steps: usize,
+    next_event_type: String,
+    reason: String,
+    bindings: core::Bindings,
+    events: Vec<PyEvent>,
+}
+
+impl PyNearMiss {
+    fn from_core(value: &core::NearMiss, events: &[core::Event]) -> Self {
+        let participating = value
+            .participating_indices
+            .iter()
+            .map(|&index| PyEvent {
+                inner: events[index].clone(),
+            })
+            .collect();
+        Self {
+            partition: value.partition.clone(),
+            start_index: value.start_index,
+            indices: value.participating_indices.clone(),
+            reached_steps: value.reached_steps,
+            next_event_type: value.next_event_type.clone(),
+            reason: reason_str(value.reason).to_owned(),
+            bindings: value.bindings.clone(),
+            events: participating,
+        }
+    }
+}
+
+#[pymethods]
+impl PyNearMiss {
+    #[getter]
+    fn partition(&self) -> &str {
+        &self.partition
+    }
+
+    #[getter]
+    fn start_index(&self) -> usize {
+        self.start_index
+    }
+
+    #[getter]
+    fn indices(&self) -> Vec<usize> {
+        self.indices.clone()
+    }
+
+    #[getter]
+    fn reached_steps(&self) -> usize {
+        self.reached_steps
+    }
+
+    #[getter]
+    fn next_event_type(&self) -> &str {
+        &self.next_event_type
+    }
+
+    /// One of: predicate_failed, absence_blocked, window_exceeded, no_successor.
+    #[getter]
+    fn reason(&self) -> &str {
+        &self.reason
+    }
+
+    #[getter]
+    fn events(&self) -> Vec<PyEvent> {
+        self.events.clone()
+    }
+
+    #[getter]
+    fn captures(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let captures = PyDict::new_bound(py);
+        for (key, value) in &self.bindings {
+            captures.set_item(key, value_to_py(py, value))?;
+        }
+        Ok(captures.unbind())
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "NearMiss(partition={:?}, indices={:?}, next={:?}, reason={:?})",
+            self.partition, self.indices, self.next_event_type, self.reason
+        )
+    }
+}
+
 fn coerce_pattern(obj: &Bound<'_, PyAny>) -> PyResult<core::Pattern> {
     if let Ok(pattern) = obj.extract::<PyPattern>() {
         return Ok(pattern.inner);
@@ -331,14 +431,35 @@ fn match_events(
         .collect())
 }
 
+/// Explain near-misses: starts that did not match, with their deepest partial
+/// path and the reason. Requires already-sorted events (see [`match_events`]).
+#[pyfunction]
+fn near_miss_events(pattern: &Bound<'_, PyAny>, events: Vec<PyEvent>) -> PyResult<Vec<PyNearMiss>> {
+    let core_events: Vec<core::Event> = events.into_iter().map(|event| event.inner).collect();
+    if !core::is_sorted_by_partition_time_index(&core_events) {
+        return Err(PyValueError::new_err(
+            "events must be grouped by partition and sorted by (timestamp, input order); \
+             call sort_events first",
+        ));
+    }
+
+    let pattern = coerce_pattern(pattern)?;
+    Ok(core::near_misses(&core_events, &pattern)
+        .iter()
+        .map(|value| PyNearMiss::from_core(value, &core_events))
+        .collect())
+}
+
 #[pymodule]
 fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyEvent>()?;
     module.add_class::<PyPattern>()?;
     module.add_class::<PatternBuilder>()?;
     module.add_class::<PyMatch>()?;
+    module.add_class::<PyNearMiss>()?;
     module.add_function(wrap_pyfunction!(parse_pattern, module)?)?;
     module.add_function(wrap_pyfunction!(sort_events, module)?)?;
     module.add_function(wrap_pyfunction!(match_events, module)?)?;
+    module.add_function(wrap_pyfunction!(near_miss_events, module)?)?;
     Ok(())
 }

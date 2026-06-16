@@ -57,6 +57,11 @@ stream = [
 results = match(parse_pattern("entered_care -[<=5]-> safeguarding_flag[severity >= 3]"), stream)
 ```
 
+`epigrep.explain(pattern, events)` returns *near-misses* — starts that cannot
+complete (in any consumption mode), each with its deepest reachable partial path
+and the reason the next step failed (`predicate_failed`, `absence_blocked`,
+`window_exceeded`, or `no_successor`).
+
 The Rust oracle/compiled parity tests remain authoritative; the Python API and
 the Streamlit app are wrappers, not the semantic source of truth.
 

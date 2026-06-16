@@ -11,7 +11,8 @@ product UI.
 - a **pattern editor** using the Phase 1 text parser;
 - a **partitioned timeline** (one swimlane per partition) with event indices,
   event types, participating events highlighted, and match spans drawn as bars;
-- a **match table** and a **captures** panel;
+- a **match table**, a **near-miss** panel (deepest partial path + why the next
+  step failed), and a **captures** panel;
 - a **ground-truth comparison** for stories with known answers (true/false
   positives and negatives);
 - a **semantics panel** that keeps consumption mode, window inclusivity, and

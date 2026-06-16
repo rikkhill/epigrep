@@ -124,3 +124,47 @@ def test_sort_events_is_stable_on_ties():
     # Same timestamp: original order must be preserved as the tie-break.
     events = [Event("p", 5, "A"), Event("p", 5, "B"), Event("p", 5, "C")]
     assert [e.typ for e in sort_events(events)] == ["A", "B", "C"]
+
+
+def test_explain_care_pathway_reasons():
+    story = data.care_pathway()
+    misses = epigrep.explain(parse_pattern(story.pattern_text), story.events)
+    by_partition = {nm.partition: nm.reason for nm in misses}
+    # child-2 matches, so it is not a near-miss.
+    assert by_partition == {
+        "child-1": "absence_blocked",
+        "child-3": "predicate_failed",
+    }
+
+
+def test_explain_window_exceeded():
+    events = [Event("p", 0, "A"), Event("p", 10, "B")]
+    misses = epigrep.explain(parse_pattern("A -[<=5]-> B"), events)
+    assert len(misses) == 1
+    assert misses[0].reason == "window_exceeded"
+    assert misses[0].indices == [0]
+    assert misses[0].next_event_type == "B"
+
+
+def test_explain_no_successor():
+    events = [Event("p", 0, "A"), Event("p", 1, "X")]
+    misses = epigrep.explain(parse_pattern("A -> B"), events)
+    assert [nm.reason for nm in misses] == ["no_successor"]
+
+
+def test_explain_excludes_matchable_starts():
+    # A plain match has no near-miss.
+    events = [Event("p", 0, "A"), Event("p", 1, "B")]
+    assert epigrep.explain(parse_pattern("A -> B"), events) == []
+    # The dead-end start CAN complete exhaustively, so it is not a near-miss;
+    # its first-successor failure is a consumption difference, not a near-miss.
+    story = data.dead_end_story()
+    assert epigrep.explain(parse_pattern(story.pattern_text), story.events) == []
+
+
+def test_near_misses_to_frame():
+    story = data.care_pathway()
+    frame = epigrep.near_misses_to_frame(
+        epigrep.explain(parse_pattern(story.pattern_text), story.events)
+    )
+    assert set(frame["reason"]) == {"absence_blocked", "predicate_failed"}

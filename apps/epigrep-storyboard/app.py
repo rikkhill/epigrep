@@ -36,14 +36,20 @@ SEMANTIC_NOTES = """
 """
 
 
-def events_dataframe(story, matches) -> pd.DataFrame:
-    """One row per event, flagged with whether it participates in any match."""
-    participating = {index for m in matches for index in m.indices}
+def events_dataframe(story, matches, near_misses) -> pd.DataFrame:
+    """One row per event, tagged with its role: match, near-miss, or other."""
+    matched = {index for m in matches for index in m.indices}
+    near = {index for nm in near_misses for index in nm.indices}
     frame = epigrep.events_to_frame(story.events)
-    frame["role"] = [
-        "participating" if index in participating else "other"
-        for index in frame["index"]
-    ]
+
+    def role(index):
+        if index in matched:
+            return "match"
+        if index in near:
+            return "near-miss"
+        return "other"
+
+    frame["role"] = [role(index) for index in frame["index"]]
     return frame
 
 
@@ -61,30 +67,44 @@ def spans_dataframe(matches) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["partition", "start", "end", "label"])
 
 
-def build_chart(story, matches) -> alt.LayerChart:
-    """Build the partitioned timeline with match spans and event markers."""
-    events = events_dataframe(story, matches)
-    spans = spans_dataframe(matches)
+def near_miss_spans_dataframe(near_misses) -> pd.DataFrame:
+    """Partial-path spans for near-misses that reached at least two events."""
+    rows = [
+        {
+            "partition": nm.partition,
+            "start": nm.events[0].ts,
+            "end": nm.events[-1].ts,
+            "reason": nm.reason,
+        }
+        for nm in near_misses
+        if len(nm.indices) >= 2
+    ]
+    return pd.DataFrame(rows, columns=["partition", "start", "end", "reason"])
 
+
+def build_chart(story, matches, near_misses) -> alt.LayerChart:
+    """Build the partitioned timeline with match spans, near-misses, and markers."""
+    events = events_dataframe(story, matches, near_misses)
+    spans = spans_dataframe(matches)
+    near_spans = near_miss_spans_dataframe(near_misses)
+
+    role_domain = ["match", "near-miss", "other"]
     base = alt.Chart(events)
-    points = base.mark_point(size=160, filled=True).encode(
+    points = base.mark_point(size=170, filled=True).encode(
         x=alt.X("ts:Q", title="time"),
         y=alt.Y("partition:N", title="partition"),
         color=alt.Color("typ:N", title="event type"),
         shape=alt.Shape(
             "role:N",
             title="role",
-            scale=alt.Scale(
-                domain=["participating", "other"],
-                range=["diamond", "circle"],
-            ),
+            scale=alt.Scale(domain=role_domain, range=["diamond", "cross", "circle"]),
         ),
         opacity=alt.Opacity(
             "role:N",
-            scale=alt.Scale(domain=["participating", "other"], range=[1.0, 0.45]),
+            scale=alt.Scale(domain=role_domain, range=[1.0, 0.85, 0.4]),
             legend=None,
         ),
-        tooltip=["index:Q", "partition:N", "ts:Q", "typ:N"],
+        tooltip=["index:Q", "partition:N", "ts:Q", "typ:N", "role:N"],
     )
     labels = base.mark_text(dy=-14, fontSize=10).encode(
         x="ts:Q",
@@ -92,9 +112,20 @@ def build_chart(story, matches) -> alt.LayerChart:
         text="index:Q",
     )
 
-    layers = [points, labels]
+    layers = []
+    if not near_spans.empty:
+        layers.append(
+            alt.Chart(near_spans)
+            .mark_rule(strokeWidth=3, strokeDash=[4, 3], opacity=0.6, color="#c0392b")
+            .encode(
+                x="start:Q",
+                x2="end:Q",
+                y="partition:N",
+                tooltip=["partition:N", "start:Q", "end:Q", "reason:N"],
+            )
+        )
     if not spans.empty:
-        span_marks = (
+        layers.append(
             alt.Chart(spans)
             .mark_rule(strokeWidth=6, opacity=0.3, color="#444")
             .encode(
@@ -104,7 +135,7 @@ def build_chart(story, matches) -> alt.LayerChart:
                 tooltip=["partition:N", "start:Q", "end:Q", "label:N"],
             )
         )
-        layers.insert(0, span_marks)
+    layers.extend([points, labels])
 
     return alt.layer(*layers).properties(height=120 + 40 * events["partition"].nunique())
 
@@ -151,15 +182,18 @@ def main() -> None:
         st.stop()
 
     matches = match(pattern, story.events, exhaustive=exhaustive, oracle=use_oracle)
+    # Near-misses are existence-based and mode-independent, so compute once.
+    near_misses = epigrep.explain(pattern, story.events)
 
     left, right = st.columns([3, 2])
 
     with left:
         st.subheader("Timeline")
-        st.altair_chart(build_chart(story, matches), use_container_width=True)
+        st.altair_chart(build_chart(story, matches, near_misses), use_container_width=True)
         st.caption(
-            "Diamonds are participating events; numbers are event indices; grey "
-            "bars are match spans."
+            "Diamonds = match events, red crosses = near-miss events, faded "
+            "circles = other. Numbers are event indices; grey bars are match "
+            "spans; dashed red bars are near-miss partial paths."
         )
 
         st.subheader(f"Matches ({len(matches)})")
@@ -171,6 +205,18 @@ def main() -> None:
             st.info("No matches for this pattern, dataset, and mode.")
 
     with right:
+        st.subheader(f"Near-misses ({len(near_misses)})")
+        st.caption(
+            "Starts that cannot complete (any mode), with the deepest reach and "
+            "why the next step failed."
+        )
+        if near_misses:
+            st.dataframe(
+                epigrep.near_misses_to_frame(near_misses), use_container_width=True
+            )
+        else:
+            st.caption("No near-misses: every start either matches or fails at step 1.")
+
         st.subheader("Captures")
         captures = [m.captures for m in matches if m.captures]
         if captures:

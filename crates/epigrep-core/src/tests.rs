@@ -728,3 +728,111 @@ fn numeric_equality_and_ordering_agree_across_int_and_float() {
     let pattern = single(Predicate::new("v", ComparisonOperator::Eq, "1"));
     assert!(oracle_matches(&events, &pattern).is_empty());
 }
+
+fn only_near_miss(events: &[Event], pattern: &Pattern) -> NearMiss {
+    let mut misses = near_misses(events, pattern);
+    assert_eq!(misses.len(), 1, "expected exactly one near-miss");
+    misses.pop().unwrap()
+}
+
+#[test]
+fn near_miss_window_exceeded() {
+    let events = vec![Event::new("p", 0, "A"), Event::new("p", 10, "B")];
+    let pattern = sequence("A", "B", Transition::any().within(5));
+
+    let miss = only_near_miss(&events, &pattern);
+    assert_eq!(miss.participating_indices, vec![0]);
+    assert_eq!(miss.reached_steps, 1);
+    assert_eq!(miss.next_event_type, "B");
+    assert_eq!(miss.reason, NearMissReason::WindowExceeded);
+}
+
+#[test]
+fn near_miss_absence_blocked() {
+    let events = vec![
+        Event::new("p", 0, "A"),
+        Event::new("p", 1, "C"),
+        Event::new("p", 2, "B"),
+    ];
+    let pattern = sequence("A", "B", Transition::any().with_absence(atom("C")));
+
+    let miss = only_near_miss(&events, &pattern);
+    assert_eq!(miss.reason, NearMissReason::AbsenceBlocked);
+}
+
+#[test]
+fn near_miss_predicate_failed() {
+    let events = vec![
+        Event::new("p", 0, "A"),
+        Event::new("p", 1, "B").with_attr("score", 1_i64.into()),
+    ];
+    let pattern = Pattern::sequence(vec![
+        Step::first(atom("A")),
+        Step::then(
+            atom("B").with_predicate(Predicate::new("score", ComparisonOperator::Gte, 3_i64)),
+            Transition::any(),
+        ),
+    ]);
+
+    let miss = only_near_miss(&events, &pattern);
+    assert_eq!(miss.reason, NearMissReason::PredicateFailed);
+}
+
+#[test]
+fn near_miss_no_successor() {
+    let events = vec![Event::new("p", 0, "A"), Event::new("p", 1, "X")];
+    let pattern = sequence("A", "B", Transition::any());
+
+    let miss = only_near_miss(&events, &pattern);
+    assert_eq!(miss.reason, NearMissReason::NoSuccessor);
+}
+
+#[test]
+fn near_miss_reports_deepest_partial_path() {
+    // Reaches A->B but no C is ever available: deepest path is [0, 1].
+    let events = vec![
+        Event::new("p", 0, "A"),
+        Event::new("p", 1, "B"),
+        Event::new("p", 2, "X"),
+    ];
+    let pattern = Pattern::sequence(vec![
+        Step::first(atom("A")),
+        Step::then(atom("B"), Transition::any()),
+        Step::then(atom("C"), Transition::any()),
+    ]);
+
+    let miss = only_near_miss(&events, &pattern);
+    assert_eq!(miss.participating_indices, vec![0, 1]);
+    assert_eq!(miss.reached_steps, 2);
+    assert_eq!(miss.next_event_type, "C");
+    assert_eq!(miss.reason, NearMissReason::NoSuccessor);
+}
+
+#[test]
+fn near_miss_excludes_starts_that_fully_match() {
+    let events = vec![Event::new("p", 0, "A"), Event::new("p", 1, "B")];
+    let pattern = sequence("A", "B", Transition::any());
+
+    assert!(near_misses(&events, &pattern).is_empty());
+}
+
+#[test]
+fn near_miss_prefers_the_nearest_reason() {
+    // For start A@0: a same-type B exists in window but fails the predicate,
+    // and another B exists out of window. Predicate-failure is the nearer miss.
+    let events = vec![
+        Event::new("p", 0, "A"),
+        Event::new("p", 1, "B").with_attr("score", 1_i64.into()),
+        Event::new("p", 50, "B").with_attr("score", 9_i64.into()),
+    ];
+    let pattern = Pattern::sequence(vec![
+        Step::first(atom("A")),
+        Step::then(
+            atom("B").with_predicate(Predicate::new("score", ComparisonOperator::Gte, 3_i64)),
+            Transition::any().within(5),
+        ),
+    ]);
+
+    let miss = only_near_miss(&events, &pattern);
+    assert_eq!(miss.reason, NearMissReason::PredicateFailed);
+}

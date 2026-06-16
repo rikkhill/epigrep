@@ -473,7 +473,8 @@ mod property_tests {
     }
 
     fn stream_strategy() -> impl Strategy<Value = Vec<Event>> {
-        prop::collection::vec(event_strategy(), 0..=12).prop_map(|mut events| {
+        prop::collection::vec(event_strategy(), 0..=14).prop_map(|mut events| {
+            // Stable sort so input order remains the (timestamp, index) tie-break.
             events.sort_by(|left, right| {
                 left.partition
                     .cmp(&right.partition)
@@ -571,6 +572,8 @@ mod property_tests {
             atom_strategy(),
             atom_strategy(),
             prop::option::of(atom_strategy()),
+            prop::option::of(atom_strategy()),
+            transition_strategy(),
             transition_strategy(),
             transition_strategy(),
             prop_oneof![
@@ -578,13 +581,67 @@ mod property_tests {
                 Just(MatchConsumption::ExhaustivePerStart),
             ],
         )
-            .prop_map(
-                |(first, second, third, first_transition, second_transition, consumption)| {
-                    let mut steps = vec![Step::first(first), Step::then(second, first_transition)];
-                    if let Some(third) = third {
-                        steps.push(Step::then(third, second_transition));
+            .prop_map(|(first, second, third, fourth, t1, t2, t3, consumption)| {
+                // 2 to 4 steps; a fourth step only exists if a third does.
+                let mut steps = vec![Step::first(first), Step::then(second, t1)];
+                if let Some(third) = third {
+                    steps.push(Step::then(third, t2));
+                    if let Some(fourth) = fourth {
+                        steps.push(Step::then(fourth, t3));
                     }
-                    Pattern::sequence(steps).with_consumption(consumption)
+                }
+                Pattern::sequence(steps).with_consumption(consumption)
+            })
+    }
+
+    // A stream and pattern deliberately shaped to produce early-success /
+    // late-dead-end paths: an early successor satisfies its transition but the
+    // remaining steps fail (tight final window, absence guard, or no final
+    // event), while a later successor might complete. This is the class the
+    // generic generators did not discover on their own, which hid the
+    // FirstSuccessorPerStart consumption bug.
+    fn dead_end_stream() -> impl Strategy<Value = Vec<Event>> {
+        prop::collection::vec(
+            (prop_oneof![Just("A"), Just("B"), Just("C")], 0_i64..=8),
+            3..=14,
+        )
+        .prop_map(|specs| {
+            let mut events: Vec<Event> = specs
+                .into_iter()
+                .map(|(event_type, timestamp)| Event::new("p", timestamp, event_type))
+                .collect();
+            // Stable sort: input order is the (timestamp, index) tie-break.
+            events.sort_by_key(|event| event.timestamp);
+            events
+        })
+    }
+
+    fn dead_end_pattern() -> impl Strategy<Value = Pattern> {
+        (
+            0_i64..=3,                   // tight final window forces dead-ends
+            prop::option::of(0_i64..=4), // optional middle window
+            any::<bool>(),               // optional absence guard on the final step
+            prop_oneof![
+                Just(MatchConsumption::FirstSuccessorPerStart),
+                Just(MatchConsumption::ExhaustivePerStart),
+            ],
+        )
+            .prop_map(
+                |(final_window, middle_window, guard_absence, consumption)| {
+                    let middle = match middle_window {
+                        Some(window) => Transition::any().within(window),
+                        None => Transition::any(),
+                    };
+                    let mut final_transition = Transition::any().within(final_window);
+                    if guard_absence {
+                        final_transition = final_transition.with_absence(atom("A"));
+                    }
+                    Pattern::sequence(vec![
+                        Step::first(atom("A")),
+                        Step::then(atom("B"), middle),
+                        Step::then(atom("C"), final_transition),
+                    ])
+                    .with_consumption(consumption)
                 },
             )
     }
@@ -594,6 +651,17 @@ mod property_tests {
         fn compiled_matches_oracle_for_generated_streams_and_patterns(
             events in stream_strategy(),
             pattern in pattern_strategy(),
+        ) {
+            prop_assert_eq!(
+                compiled_matches(&events, &pattern),
+                oracle_matches(&events, &pattern)
+            );
+        }
+
+        #[test]
+        fn compiled_matches_oracle_on_multi_step_dead_ends(
+            events in dead_end_stream(),
+            pattern in dead_end_pattern(),
         ) {
             prop_assert_eq!(
                 compiled_matches(&events, &pattern),

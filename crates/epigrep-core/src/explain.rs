@@ -14,8 +14,8 @@
 //!   here.
 //! * For a near-miss, the reported path is the **deepest reachable** partial
 //!   path from that start (ties broken by lexicographically smallest indices),
-//!   and the reason classifies why the next step could not be satisfied from the
-//!   path's frontier, by "nearest miss" priority:
+//!   and the [`NearMissDetail`] explains why the next step could not be
+//!   satisfied from the path's frontier, by "nearest miss" priority:
 //!   `PredicateFailed` > `AbsenceBlocked` > `WindowExceeded` > `NoSuccessor`.
 
 use crate::matcher::{transition_allows, validate_pattern};
@@ -39,7 +39,9 @@ pub enum NearMissReason {
 }
 
 impl NearMissReason {
-    fn priority(self) -> u8 {
+    /// Higher means a nearer miss. Classification reports the highest-priority
+    /// reason among a start's candidates.
+    pub fn priority(self) -> u8 {
         match self {
             Self::NoSuccessor => 0,
             Self::WindowExceeded => 1,
@@ -47,18 +49,75 @@ impl NearMissReason {
             Self::PredicateFailed => 3,
         }
     }
+}
 
-    /// Keep whichever reason is the nearer miss.
-    fn nearer(self, other: Self) -> Self {
-        if other.priority() > self.priority() {
-            other
-        } else {
-            self
+/// A single failed clause on the would-be candidate atom.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PredicateFailure {
+    /// A literal predicate such as `score >= 3` failed.
+    Predicate {
+        attribute: String,
+        operator: ComparisonOperator,
+        expected: Value,
+        /// The candidate's value for `attribute`, or `None` if absent.
+        actual: Option<Value>,
+    },
+    /// A reference predicate such as `pod == $p` failed.
+    Reference {
+        attribute: String,
+        operator: ComparisonOperator,
+        binding: String,
+        /// The bound value of `binding` along the path, or `None` if unbound.
+        bound: Option<Value>,
+        actual: Option<Value>,
+    },
+    /// A capture re-binding such as a second `user_id as $u` conflicted.
+    Capture {
+        name: String,
+        attribute: String,
+        bound: Value,
+        actual: Option<Value>,
+    },
+}
+
+/// The specifics behind a near-miss reason.
+#[derive(Debug, Clone, PartialEq)]
+pub enum NearMissDetail {
+    /// The nearest right-type, in-window, absence-clear candidate and the
+    /// clauses it failed.
+    PredicateFailed {
+        event_index: EventIndex,
+        failures: Vec<PredicateFailure>,
+    },
+    /// The nearest right-type, in-window candidate and the event that blocked it.
+    AbsenceBlocked {
+        candidate_index: EventIndex,
+        blocking_index: EventIndex,
+        blocking_event_type: String,
+    },
+    /// The nearest right-type candidate and how far outside the window it sat.
+    /// It would have matched had the window been at least `gap`.
+    WindowExceeded {
+        candidate_index: EventIndex,
+        gap: Timestamp,
+        max_elapsed: Timestamp,
+    },
+    /// No event of the required type follows the frontier.
+    NoSuccessor,
+}
+
+impl NearMissDetail {
+    pub fn reason(&self) -> NearMissReason {
+        match self {
+            Self::PredicateFailed { .. } => NearMissReason::PredicateFailed,
+            Self::AbsenceBlocked { .. } => NearMissReason::AbsenceBlocked,
+            Self::WindowExceeded { .. } => NearMissReason::WindowExceeded,
+            Self::NoSuccessor => NearMissReason::NoSuccessor,
         }
     }
 }
 
-/// A start that did not complete, with its deepest partial path and the reason.
+/// A start that did not complete, with its deepest partial path and the detail.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NearMiss {
     pub partition: String,
@@ -71,9 +130,15 @@ pub struct NearMiss {
     pub next_step_index: usize,
     /// Event type the failing step required.
     pub next_event_type: String,
-    pub reason: NearMissReason,
+    pub detail: NearMissDetail,
     /// Bindings captured along the deepest partial path.
     pub bindings: Bindings,
+}
+
+impl NearMiss {
+    pub fn reason(&self) -> NearMissReason {
+        self.detail.reason()
+    }
 }
 
 struct Reach {
@@ -129,7 +194,7 @@ pub fn near_misses(events: &[Event], pattern: &Pattern) -> Vec<NearMiss> {
             let frontier = *deepest.path.last().expect("path is non-empty");
             let failed_step_index = deepest.reached();
             let failed_step = &pattern.steps[failed_step_index];
-            let reason = classify(
+            let detail = classify(
                 events,
                 partition_end,
                 frontier,
@@ -144,7 +209,7 @@ pub fn near_misses(events: &[Event], pattern: &Pattern) -> Vec<NearMiss> {
                 reached_steps: failed_step_index,
                 next_step_index: failed_step_index,
                 next_event_type: failed_step.atom.event_type.clone(),
-                reason,
+                detail,
                 bindings: deepest.bindings,
             });
         }
@@ -226,44 +291,118 @@ fn classify(
     frontier: EventIndex,
     step: &Step,
     bindings: &Bindings,
-) -> NearMissReason {
+) -> NearMissDetail {
     let transition = step
         .transition_from_previous
         .as_ref()
         .expect("transition exists after first step");
     let atom = &step.atom;
 
-    let mut reason = NearMissReason::NoSuccessor;
+    // Within-window candidates always precede beyond-window ones (events are
+    // sorted by timestamp), so the first predicate miss we hit, in index order,
+    // is the nearest one and wins on priority.
+    let mut first_absence: Option<(EventIndex, EventIndex, String)> = None;
+    let mut first_window: Option<(EventIndex, Timestamp)> = None;
+
     for candidate_index in frontier + 1..partition_end {
         let candidate = &events[candidate_index];
         if candidate.event_type != atom.event_type {
             continue;
         }
 
+        let gap = candidate.timestamp - events[frontier].timestamp;
         let within_window = match transition.max_elapsed {
-            Some(max_elapsed) => candidate.timestamp - events[frontier].timestamp <= max_elapsed,
+            Some(max_elapsed) => gap <= max_elapsed,
             None => true,
         };
         if !within_window {
-            reason = reason.nearer(NearMissReason::WindowExceeded);
+            first_window.get_or_insert((candidate_index, gap));
             continue;
         }
 
-        let absence_blocked = events[frontier + 1..candidate_index].iter().any(|event| {
-            transition
-                .absence
-                .iter()
-                .any(|absent_atom| absent_atom.matches(event, bindings))
-        });
-        if absence_blocked {
-            reason = reason.nearer(NearMissReason::AbsenceBlocked);
+        let blocking = events[frontier + 1..candidate_index]
+            .iter()
+            .enumerate()
+            .find(|(_, event)| {
+                transition
+                    .absence
+                    .iter()
+                    .any(|absent_atom| absent_atom.matches(event, bindings))
+            })
+            .map(|(offset, event)| (frontier + 1 + offset, event.event_type.clone()));
+        if let Some((blocking_index, blocking_type)) = blocking {
+            first_absence.get_or_insert((candidate_index, blocking_index, blocking_type));
             continue;
         }
 
-        // Right type, in window, absence clear: had the predicate/reference
-        // passed, the path would have extended, so this is a predicate miss.
-        reason = reason.nearer(NearMissReason::PredicateFailed);
+        // In window, absence clear, right type: if a clause had not failed the
+        // path would have extended, so this is the nearest predicate miss.
+        return NearMissDetail::PredicateFailed {
+            event_index: candidate_index,
+            failures: predicate_failures(atom, candidate, bindings),
+        };
     }
 
-    reason
+    if let Some((candidate_index, blocking_index, blocking_event_type)) = first_absence {
+        return NearMissDetail::AbsenceBlocked {
+            candidate_index,
+            blocking_index,
+            blocking_event_type,
+        };
+    }
+    if let Some((candidate_index, gap)) = first_window {
+        return NearMissDetail::WindowExceeded {
+            candidate_index,
+            gap,
+            max_elapsed: transition.max_elapsed.unwrap_or(0),
+        };
+    }
+    NearMissDetail::NoSuccessor
+}
+
+fn predicate_failures(atom: &Atom, event: &Event, bindings: &Bindings) -> Vec<PredicateFailure> {
+    let mut failures = Vec::new();
+
+    for predicate in &atom.predicates {
+        if !predicate.matches(event) {
+            failures.push(PredicateFailure::Predicate {
+                attribute: predicate.attribute.clone(),
+                operator: predicate.operator,
+                expected: predicate.value.clone(),
+                actual: event.attributes.get(&predicate.attribute).cloned(),
+            });
+        }
+    }
+
+    for reference in &atom.reference_predicates {
+        if !reference.matches(event, bindings) {
+            failures.push(PredicateFailure::Reference {
+                attribute: reference.attribute.clone(),
+                operator: reference.operator,
+                binding: reference.binding.clone(),
+                bound: bindings.get(&reference.binding).cloned(),
+                actual: event.attributes.get(&reference.attribute).cloned(),
+            });
+        }
+    }
+
+    for capture in &atom.captures {
+        if let Some(existing) = bindings.get(&capture.name) {
+            let actual = event
+                .attributes
+                .get(&capture.attribute)
+                .cloned()
+                .unwrap_or(Value::Null);
+            if existing != &actual {
+                failures.push(PredicateFailure::Capture {
+                    name: capture.name.clone(),
+                    attribute: capture.attribute.clone(),
+                    bound: existing.clone(),
+                    actual: Some(actual),
+                });
+            }
+        }
+    }
+
+    failures
 }

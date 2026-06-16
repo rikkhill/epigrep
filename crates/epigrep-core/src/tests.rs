@@ -744,7 +744,16 @@ fn near_miss_window_exceeded() {
     assert_eq!(miss.participating_indices, vec![0]);
     assert_eq!(miss.reached_steps, 1);
     assert_eq!(miss.next_event_type, "B");
-    assert_eq!(miss.reason, NearMissReason::WindowExceeded);
+    assert_eq!(miss.reason(), NearMissReason::WindowExceeded);
+    // Counterfactual: B at index 1 is 10 apart; would match with window >= 10.
+    assert_eq!(
+        miss.detail,
+        NearMissDetail::WindowExceeded {
+            candidate_index: 1,
+            gap: 10,
+            max_elapsed: 5,
+        }
+    );
 }
 
 #[test]
@@ -757,7 +766,16 @@ fn near_miss_absence_blocked() {
     let pattern = sequence("A", "B", Transition::any().with_absence(atom("C")));
 
     let miss = only_near_miss(&events, &pattern);
-    assert_eq!(miss.reason, NearMissReason::AbsenceBlocked);
+    assert_eq!(miss.reason(), NearMissReason::AbsenceBlocked);
+    // The C at index 1 blocked the B at index 2.
+    assert_eq!(
+        miss.detail,
+        NearMissDetail::AbsenceBlocked {
+            candidate_index: 2,
+            blocking_index: 1,
+            blocking_event_type: "C".to_owned(),
+        }
+    );
 }
 
 #[test]
@@ -775,7 +793,55 @@ fn near_miss_predicate_failed() {
     ]);
 
     let miss = only_near_miss(&events, &pattern);
-    assert_eq!(miss.reason, NearMissReason::PredicateFailed);
+    assert_eq!(miss.reason(), NearMissReason::PredicateFailed);
+    // Names the offending clause and the actual value on the candidate.
+    assert_eq!(
+        miss.detail,
+        NearMissDetail::PredicateFailed {
+            event_index: 1,
+            failures: vec![PredicateFailure::Predicate {
+                attribute: "score".to_owned(),
+                operator: ComparisonOperator::Gte,
+                expected: Value::Int(3),
+                actual: Some(Value::Int(1)),
+            }],
+        }
+    );
+}
+
+#[test]
+fn near_miss_reference_failure_reports_binding_and_actual() {
+    // A captures user_id=u1; B's reference user_id == $u fails with u2.
+    let events = vec![
+        Event::new("p", 0, "A").with_attr("user_id", "u1".into()),
+        Event::new("p", 1, "B").with_attr("user_id", "u2".into()),
+    ];
+    let pattern = Pattern::sequence(vec![
+        Step::first(atom("A").with_capture(Capture::new("u", "user_id"))),
+        Step::then(
+            atom("B").with_reference_predicate(ReferencePredicate::new(
+                "user_id",
+                ComparisonOperator::Eq,
+                "u",
+            )),
+            Transition::any(),
+        ),
+    ]);
+
+    let miss = only_near_miss(&events, &pattern);
+    assert_eq!(
+        miss.detail,
+        NearMissDetail::PredicateFailed {
+            event_index: 1,
+            failures: vec![PredicateFailure::Reference {
+                attribute: "user_id".to_owned(),
+                operator: ComparisonOperator::Eq,
+                binding: "u".to_owned(),
+                bound: Some(Value::String("u1".to_owned())),
+                actual: Some(Value::String("u2".to_owned())),
+            }],
+        }
+    );
 }
 
 #[test]
@@ -784,7 +850,7 @@ fn near_miss_no_successor() {
     let pattern = sequence("A", "B", Transition::any());
 
     let miss = only_near_miss(&events, &pattern);
-    assert_eq!(miss.reason, NearMissReason::NoSuccessor);
+    assert_eq!(miss.reason(), NearMissReason::NoSuccessor);
 }
 
 #[test]
@@ -805,7 +871,7 @@ fn near_miss_reports_deepest_partial_path() {
     assert_eq!(miss.participating_indices, vec![0, 1]);
     assert_eq!(miss.reached_steps, 2);
     assert_eq!(miss.next_event_type, "C");
-    assert_eq!(miss.reason, NearMissReason::NoSuccessor);
+    assert_eq!(miss.reason(), NearMissReason::NoSuccessor);
 }
 
 #[test]
@@ -834,5 +900,5 @@ fn near_miss_prefers_the_nearest_reason() {
     ]);
 
     let miss = only_near_miss(&events, &pattern);
-    assert_eq!(miss.reason, NearMissReason::PredicateFailed);
+    assert_eq!(miss.reason(), NearMissReason::PredicateFailed);
 }

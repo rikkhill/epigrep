@@ -168,3 +168,55 @@ def test_near_misses_to_frame():
         epigrep.explain(parse_pattern(story.pattern_text), story.events)
     )
     assert set(frame["reason"]) == {"absence_blocked", "predicate_failed"}
+
+
+def test_explain_detail_predicate_names_clause_and_actual():
+    events = [Event("p", 0, "A"), Event("p", 1, "B", {"score": 1})]
+    misses = epigrep.explain(parse_pattern("A -> B[score >= 3]"), events)
+    detail = misses[0].detail
+    assert detail["kind"] == "predicate_failed"
+    assert detail["event_index"] == 1
+    failure = detail["failures"][0]
+    assert failure == {
+        "type": "predicate",
+        "attribute": "score",
+        "operator": ">=",
+        "expected": 3,
+        "actual": 1,
+    }
+
+
+def test_explain_detail_reference_reports_binding_and_actual():
+    ob = data.observability_trace()
+    misses = epigrep.explain(parse_pattern(ob.pattern_text), ob.events)
+    failure = misses[0].detail["failures"][0]
+    assert failure["type"] == "reference"
+    assert failure["binding"] == "p"
+    assert failure["bound"] == "worker"
+    assert failure["actual"] == "db"
+
+
+def test_explain_detail_window_counterfactual():
+    events = [Event("p", 0, "A"), Event("p", 10, "B")]
+    detail = epigrep.explain(parse_pattern("A -[<=5]-> B"), events)[0].detail
+    assert detail == {
+        "kind": "window_exceeded",
+        "candidate_index": 1,
+        "gap": 10,
+        "max_elapsed": 5,
+    }
+
+
+def test_explain_detail_absence_points_at_blocking_event():
+    story = data.care_pathway()
+    misses = epigrep.explain(parse_pattern(story.pattern_text), story.events)
+    blocked = next(nm for nm in misses if nm.reason == "absence_blocked")
+    assert blocked.detail["blocking_event_type"] == "placement_change"
+
+
+def test_near_miss_summary_is_readable():
+    events = [Event("p", 0, "A"), Event("p", 10, "B")]
+    summary = epigrep.near_miss_summary(
+        epigrep.explain(parse_pattern("A -[<=5]-> B"), events)[0]
+    )
+    assert "would match if window >= 10" in summary

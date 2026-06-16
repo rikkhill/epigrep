@@ -233,7 +233,7 @@ impl ReferencePredicate {
         }
     }
 
-    fn matches(&self, event: &Event, bindings: &Bindings) -> bool {
+    pub(crate) fn matches(&self, event: &Event, bindings: &Bindings) -> bool {
         let Some(actual) = event.attributes.get(&self.attribute) else {
             return false;
         };
@@ -264,7 +264,7 @@ impl Predicate {
         }
     }
 
-    fn matches(&self, event: &Event) -> bool {
+    pub(crate) fn matches(&self, event: &Event) -> bool {
         let Some(actual) = event.attributes.get(&self.attribute) else {
             return false;
         };
@@ -283,6 +283,18 @@ pub enum ComparisonOperator {
 }
 
 impl ComparisonOperator {
+    /// The operator's source-text symbol (e.g. `>=`).
+    pub fn symbol(self) -> &'static str {
+        match self {
+            Self::Eq => "==",
+            Self::NotEq => "!=",
+            Self::Gt => ">",
+            Self::Gte => ">=",
+            Self::Lt => "<",
+            Self::Lte => "<=",
+        }
+    }
+
     fn matches(self, actual: &Value, expected: &Value) -> bool {
         match self {
             Self::Eq => values_equal(actual, expected),

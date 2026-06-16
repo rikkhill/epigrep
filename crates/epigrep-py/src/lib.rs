@@ -12,7 +12,7 @@
 use epigrep_core as core;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyDict};
+use pyo3::types::{PyBool, PyDict, PyList};
 
 /// Convert a Python attribute value into a core `Value`.
 ///
@@ -269,6 +269,100 @@ fn reason_str(reason: core::NearMissReason) -> &'static str {
     }
 }
 
+fn optional_value_to_py(py: Python<'_>, value: &Option<core::Value>) -> PyObject {
+    match value {
+        Some(value) => value_to_py(py, value),
+        None => py.None(),
+    }
+}
+
+fn failure_to_py(py: Python<'_>, failure: &core::PredicateFailure) -> PyResult<Py<PyDict>> {
+    let dict = PyDict::new_bound(py);
+    match failure {
+        core::PredicateFailure::Predicate {
+            attribute,
+            operator,
+            expected,
+            actual,
+        } => {
+            dict.set_item("type", "predicate")?;
+            dict.set_item("attribute", attribute)?;
+            dict.set_item("operator", operator.symbol())?;
+            dict.set_item("expected", value_to_py(py, expected))?;
+            dict.set_item("actual", optional_value_to_py(py, actual))?;
+        }
+        core::PredicateFailure::Reference {
+            attribute,
+            operator,
+            binding,
+            bound,
+            actual,
+        } => {
+            dict.set_item("type", "reference")?;
+            dict.set_item("attribute", attribute)?;
+            dict.set_item("operator", operator.symbol())?;
+            dict.set_item("binding", binding)?;
+            dict.set_item("bound", optional_value_to_py(py, bound))?;
+            dict.set_item("actual", optional_value_to_py(py, actual))?;
+        }
+        core::PredicateFailure::Capture {
+            name,
+            attribute,
+            bound,
+            actual,
+        } => {
+            dict.set_item("type", "capture")?;
+            dict.set_item("name", name)?;
+            dict.set_item("attribute", attribute)?;
+            dict.set_item("bound", value_to_py(py, bound))?;
+            dict.set_item("actual", optional_value_to_py(py, actual))?;
+        }
+    }
+    Ok(dict.unbind())
+}
+
+fn detail_to_py(py: Python<'_>, detail: &core::NearMissDetail) -> PyResult<Py<PyDict>> {
+    let dict = PyDict::new_bound(py);
+    match detail {
+        core::NearMissDetail::PredicateFailed {
+            event_index,
+            failures,
+        } => {
+            dict.set_item("kind", "predicate_failed")?;
+            dict.set_item("event_index", *event_index)?;
+            let list = PyList::empty_bound(py);
+            for failure in failures {
+                list.append(failure_to_py(py, failure)?)?;
+            }
+            dict.set_item("failures", list)?;
+        }
+        core::NearMissDetail::AbsenceBlocked {
+            candidate_index,
+            blocking_index,
+            blocking_event_type,
+        } => {
+            dict.set_item("kind", "absence_blocked")?;
+            dict.set_item("candidate_index", *candidate_index)?;
+            dict.set_item("blocking_index", *blocking_index)?;
+            dict.set_item("blocking_event_type", blocking_event_type)?;
+        }
+        core::NearMissDetail::WindowExceeded {
+            candidate_index,
+            gap,
+            max_elapsed,
+        } => {
+            dict.set_item("kind", "window_exceeded")?;
+            dict.set_item("candidate_index", *candidate_index)?;
+            dict.set_item("gap", *gap)?;
+            dict.set_item("max_elapsed", *max_elapsed)?;
+        }
+        core::NearMissDetail::NoSuccessor => {
+            dict.set_item("kind", "no_successor")?;
+        }
+    }
+    Ok(dict.unbind())
+}
+
 /// A start that did not match, with its deepest partial path and the reason.
 #[pyclass(name = "NearMiss")]
 #[derive(Clone)]
@@ -278,7 +372,7 @@ struct PyNearMiss {
     indices: Vec<usize>,
     reached_steps: usize,
     next_event_type: String,
-    reason: String,
+    detail: core::NearMissDetail,
     bindings: core::Bindings,
     events: Vec<PyEvent>,
 }
@@ -298,7 +392,7 @@ impl PyNearMiss {
             indices: value.participating_indices.clone(),
             reached_steps: value.reached_steps,
             next_event_type: value.next_event_type.clone(),
-            reason: reason_str(value.reason).to_owned(),
+            detail: value.detail.clone(),
             bindings: value.bindings.clone(),
             events: participating,
         }
@@ -334,8 +428,15 @@ impl PyNearMiss {
 
     /// One of: predicate_failed, absence_blocked, window_exceeded, no_successor.
     #[getter]
-    fn reason(&self) -> &str {
-        &self.reason
+    fn reason(&self) -> &'static str {
+        reason_str(self.detail.reason())
+    }
+
+    /// Reason-specific specifics as a dict (keyed by "kind"); includes failed
+    /// clauses, blocking events, or window counterfactuals.
+    #[getter]
+    fn detail(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        detail_to_py(py, &self.detail)
     }
 
     #[getter]
@@ -355,7 +456,10 @@ impl PyNearMiss {
     fn __repr__(&self) -> String {
         format!(
             "NearMiss(partition={:?}, indices={:?}, next={:?}, reason={:?})",
-            self.partition, self.indices, self.next_event_type, self.reason
+            self.partition,
+            self.indices,
+            self.next_event_type,
+            reason_str(self.detail.reason())
         )
     }
 }

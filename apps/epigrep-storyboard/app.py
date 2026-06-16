@@ -211,9 +211,11 @@ def main() -> None:
             "why the next step failed."
         )
         if near_misses:
-            st.dataframe(
-                epigrep.near_misses_to_frame(near_misses), use_container_width=True
-            )
+            nm_frame = epigrep.near_misses_to_frame(near_misses)
+            nm_frame["explanation"] = [
+                epigrep.near_miss_summary(nm) for nm in near_misses
+            ]
+            st.dataframe(nm_frame, use_container_width=True)
         else:
             st.caption("No near-misses: every start either matches or fails at step 1.")
 

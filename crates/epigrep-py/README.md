@@ -68,4 +68,4 @@ against it by property tests.
 ## Status
 
 Alpha (0.1). The Python API and JSON AST are the intended stable surface; the
-text DSL is experimental. Dual-licensed under MIT or Apache-2.0.
+text DSL is experimental. MIT licensed.

@@ -9,13 +9,16 @@ grep-like matching for "what happened, in what order, within what time" — with
 
 ## Install
 
-This package is not yet published to PyPI/TestPyPI. In the 0.1 RC work area,
-install from a local wheel built by maturin:
+epigrep is on PyPI. The current release is a pre-release (release candidate),
+so install it with `--pre`:
 
 ```sh
-maturin build --release --manifest-path crates/epigrep-py/Cargo.toml --out dist
-python -m pip install --no-index --find-links dist epigrep
+pip install --pre epigrep
 ```
+
+Prebuilt wheels are published for Linux (x86_64, aarch64), macOS (Apple
+Silicon), and Windows (x64); other platforms build from the source
+distribution, which needs a Rust toolchain.
 
 ## Quick Start
 
@@ -75,5 +78,6 @@ against it by property tests.
 
 ## Status
 
-Alpha (0.1). The Python API and JSON AST are the intended stable surface; the
-text DSL is experimental. MIT licensed.
+Alpha. Published to PyPI as a release candidate (`0.1.0rc1`). The Python API
+and JSON AST are the intended stable surface; the text DSL is experimental.
+MIT licensed.

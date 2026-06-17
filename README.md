@@ -12,9 +12,9 @@ explanation of why they did not match.
 It is a small Rust core with Python bindings. The matching semantics are
 written down and tested rather than implied by the implementation.
 
-> Status: alpha (0.1). The Python API and JSON pattern format are the intended
-> stable surface; the text DSL is experimental. Not yet on PyPI — install from
-> source for now. MIT licensed.
+> Status: alpha. Published to PyPI as a release candidate (`0.1.0rc1`) —
+> `pip install --pre epigrep`. The Python API and JSON pattern format are the
+> intended stable surface; the text DSL is experimental. MIT licensed.
 
 ## When it helps
 
@@ -75,16 +75,16 @@ pattern surface, the matching semantics, and near-miss explanations.
 
 ## Install
 
-Not yet published to PyPI. Build a wheel from source with
-[maturin](https://www.maturin.rs/) and install it:
+epigrep is on PyPI. The current release is a pre-release (release candidate), so
+install it with `--pre`:
 
 ```sh
-pip install maturin
-maturin build --release --manifest-path crates/epigrep-py/Cargo.toml --out dist
-pip install --no-index --find-links dist epigrep
+pip install --pre epigrep
 ```
 
-For development, `maturin develop` builds the extension in place; see the
+Prebuilt wheels cover Linux (x86_64, aarch64), macOS (Apple Silicon), and
+Windows (x64); other platforms build from the source distribution, which needs a
+Rust toolchain. To build from a local checkout instead, see the
 [getting-started guide](docs/getting-started.md).
 
 ## Examples

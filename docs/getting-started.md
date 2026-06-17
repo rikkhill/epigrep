@@ -1,16 +1,23 @@
 # Getting started
 
-Epigrep is not yet on PyPI, so for now you build it from source. The core is
-Rust; the package is built with [maturin](https://www.maturin.rs/), which
-compiles the extension and produces an installable wheel.
+## Install from PyPI
 
-## Requirements
+epigrep is on PyPI. The current release is a pre-release (release candidate), so
+install it with `--pre`:
 
-- Rust (stable) with `cargo`.
-- Python 3.9 or newer.
-- `maturin` (`pip install maturin`).
+```sh
+pip install --pre epigrep
+```
 
-## Install from source
+Prebuilt wheels cover Linux (x86_64, aarch64), macOS (Apple Silicon), and
+Windows (x64). On other platforms pip builds from the source distribution, which
+needs a Rust toolchain (stable `cargo`) and Python 3.9+.
+
+## Build from source
+
+To work from a checkout, build with [maturin](https://www.maturin.rs/), which
+compiles the Rust core and produces an installable wheel. You need Rust (stable)
+with `cargo`, Python 3.9+, and `maturin` (`pip install maturin`).
 
 Build a wheel and install it into your environment:
 

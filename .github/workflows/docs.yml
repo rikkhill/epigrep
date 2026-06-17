@@ -32,10 +32,12 @@ jobs:
         run: pip install -r docs/requirements.txt
       - name: Build site
         run: mkdocs build --strict
+      # Requires GitHub Pages to be enabled once with the "GitHub Actions"
+      # source (Settings -> Pages -> Build and deployment -> Source). The CI
+      # token cannot create the Pages site itself, so this step (and the deploy
+      # below) only succeed after that one-time manual enable.
       - name: Configure Pages
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

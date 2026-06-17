@@ -5,13 +5,39 @@ build-backend = "maturin"
 [project]
 name = "epigrep"
 version = "0.1.0"
-description = "Python bindings and a Streamlit visual harness for the epigrep temporal event-pattern matcher."
+description = "Temporal event-pattern matching over partitioned, timestamped event sequences, with explicit semantics and near-miss explanations."
+readme = "README.md"
 requires-python = ">=3.9"
+license = "MIT OR Apache-2.0"
+authors = [{ name = "Rikk Hill" }]
+keywords = [
+    "temporal",
+    "pattern-matching",
+    "event-sequences",
+    "complex-event-processing",
+    "time-series",
+    "observability",
+    "process-mining",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries",
+    "Operating System :: OS Independent",
+]
 dependencies = ["pandas"]
 
 [project.optional-dependencies]
 demo = ["streamlit", "altair"]
 test = ["pytest"]
+
+[project.urls]
+Source = "https://github.com/rikkhill/epigrep"
+Issues = "https://github.com/rikkhill/epigrep/issues"
 
 [tool.maturin]
 module-name = "epigrep._core"

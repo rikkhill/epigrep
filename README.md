@@ -12,7 +12,7 @@ explanation of why they did not match.
 It is a small Rust core with Python bindings. The matching semantics are
 written down and tested rather than implied by the implementation.
 
-> Status: alpha. Published to PyPI as a release candidate (`0.1.0rc1`) —
+> Status: alpha. Published to PyPI as a release candidate —
 > `pip install --pre epigrep`. The Python API and JSON pattern format are the
 > intended stable surface; the text DSL is experimental. MIT licensed.
 

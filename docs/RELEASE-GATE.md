@@ -17,11 +17,26 @@ commit hash if it has moved.
 - **Name** — `epigrep` is final: distribution name, import package name, and
   GitHub repo (`git@github.com:rikkhill/epigrep.git`) all agree.
 - **License** — MIT (`License-Expression: MIT`), `LICENSE` at repo root.
-- **Posture (planning)** — MIT open-source core; repo stays **private** until
-  the 0.1 RC is clean, then flip public. The flip and any upload are gated.
+- **Posture** — **confirmed open source.** MIT core; the repo is now **public**
+  (`https://github.com/rikkhill/epigrep`).
 - **Stable surfaces** — Python API (`match` / `explain` / `schema`, builder,
   `Event` / `Pattern` / `Match` / `NearMiss`) and the JSON AST. `parse_pattern`
   / the text DSL stay importable but **provisional**, outside the 0.1 guarantee.
+
+### Release decisions confirmed (2026-06-17, by Rikk)
+
+- **Name reservation** — authorised. `epigrep` is reserved on first trusted
+  publish (no separate placeholder upload).
+- **Publishing** — **trusted publishing (OIDC)**, not long-lived tokens.
+- **Wheel matrix** — multi-platform build approved and implemented
+  (`.github/workflows/release.yml`): Linux x86_64/aarch64, macOS x86_64/arm64,
+  Windows x64 (abi3, one wheel per platform covers Python ≥3.9), plus sdist.
+- **Versioning** — release-candidate track. Version is now **`0.1.0rc1`**
+  (`crates/epigrep-py/pyproject.toml`).
+
+The only remaining step before a publish can succeed is the **PyPI-side trusted
+publisher configuration**, which requires Rikk's PyPI/TestPyPI account — see
+"PyPI trusted publisher setup" below.
 
 ---
 
@@ -106,100 +121,79 @@ pytest on Python 3.9 + 3.12.
 
 ---
 
-## GATED steps — require Rikk's explicit authorisation
+## Done
 
-### G1. Flip repo to public
+- **G1 — repo public.** `https://github.com/rikkhill/epigrep` is public.
+- **Wheel matrix + release workflow.** `.github/workflows/release.yml` builds
+  Linux x86_64/aarch64, macOS x86_64/arm64, Windows x64 wheels (abi3) + sdist,
+  and publishes via trusted publishing.
+- **RC versioning.** `0.1.0rc1`.
 
-Do this only once the RC is clean and Rikk confirms open-source posture. An
-sdist publishes source, so the repo and the package expose the same code.
+## GATED — the remaining steps to publish
 
-```sh
-gh repo edit rikkhill/epigrep --visibility public --accept-visibility-change-consequences
-```
+### G2. PyPI trusted publisher setup (Rikk — needs PyPI account)
 
-Before flipping: re-scan history for anything that should not be public
-(secrets, tokens, local-only paths, private data). `git log -p` / `gh secret
-list` / a `gitleaks`-style scan are reasonable pre-flip checks.
+This is the one step the repo cannot do for itself. On each index, add a
+**pending publisher** (Account → Publishing on PyPI; the project need not exist
+yet — the name is reserved on first publish):
 
-### G2. Version & tag
+| Field | Value |
+|---|---|
+| PyPI Project Name | `epigrep` |
+| Owner | `rikkhill` |
+| Repository name | `epigrep` |
+| Workflow name | `release.yml` |
+| Environment name | `pypi` (on pypi.org) / `testpypi` (on test.pypi.org) |
 
-`version` lives in `crates/epigrep-py/pyproject.toml` (currently `0.1.0`). A
-PyPI version is **permanent** — it can be yanked but never reused. Prefer an RC
-on TestPyPI first (e.g. `0.1.0rc1`).
+- TestPyPI publisher: <https://test.pypi.org/manage/account/publishing/>
+- PyPI publisher: <https://pypi.org/manage/account/publishing/>
 
-```sh
-# bump pyproject version if needed, commit, then tag the RC commit
-git tag -a v0.1.0 -m "epigrep 0.1.0"
-git push origin v0.1.0
-```
+The workflow's `environment:` names (`pypi`, `testpypi`) must match exactly. No
+tokens or secrets are stored anywhere — OIDC handles auth at publish time.
 
-### G3. TestPyPI rehearsal (do before real PyPI)
+### G3. TestPyPI rehearsal (recommended first)
 
-Manual-token path (token entered interactively or via env, never committed):
-
-```sh
-# build is already in dist/ from the verification block
-twine upload --repository testpypi dist/*
-# then verify a clean install resolves from TestPyPI:
-python -m pip install --index-url https://test.pypi.org/simple/ epigrep
-```
-
-> TestPyPI is a separate registry with separate accounts/tokens. A successful
-> upload here reserves the name **on TestPyPI only**, not on real PyPI.
-
-### G4. PyPI publication
-
-Preferred: **trusted publishing (OIDC)** via GitHub Actions — no long-lived
-tokens. Configure a PyPI "pending publisher" for project `epigrep`, repo
-`rikkhill/epigrep`, workflow filename, and environment, then add a release
-job, e.g.:
-
-```yaml
-# .github/workflows/release.yml (sketch — add when authorised)
-on:
-  release:
-    types: [published]
-jobs:
-  publish:
-    runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      id-token: write          # OIDC for trusted publishing
-    steps:
-      - uses: actions/checkout@v4
-      # build wheels (cibuildwheel / maturin-action across platforms) + sdist into dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
-```
-
-Manual fallback (only if trusted publishing is not set up):
+Once the TestPyPI publisher exists, run the workflow manually against TestPyPI:
 
 ```sh
-twine upload dist/*          # uses a PyPI API token; never commit the token
+gh workflow run release.yml -f index=testpypi
 ```
 
-> Note: the wheel built locally is macOS/arm64 only. A real release needs the
-> multi-platform wheel matrix (Linux manylinux, macOS x86_64+arm64, Windows)
-> built in CI via `maturin-action` / `cibuildwheel`, plus the sdist. Add that
-> matrix as part of G4.
+Then confirm a clean install resolves (TestPyPI is a separate registry; the name
+is reserved there only):
+
+```sh
+python -m pip install --index-url https://test.pypi.org/simple/ \
+  --extra-index-url https://pypi.org/simple/ epigrep==0.1.0rc1
+```
+
+### G4. PyPI publish (reserves the name, ships the RC)
+
+Once the PyPI publisher exists and the rehearsal looks right, publish by tagging
+the RC commit — the tag push triggers the build + PyPI publish:
+
+```sh
+git tag -a v0.1.0rc1 -m "epigrep 0.1.0rc1"
+git push origin v0.1.0rc1
+```
+
+(Or `gh workflow run release.yml -f index=pypi` for a tagless dispatch.) `pip`
+will not install a pre-release by default, so `0.1.0rc1` is a safe first publish.
 
 ### G5. Rollback / yank notes
 
-- **PyPI/TestPyPI**: you cannot delete-and-reuse a version. You can **yank**
-  (`pip` won't pick a yanked version for new installs unless pinned):
-  via the project's web UI, or `twine`/API. Fix forward with a new version
-  (`0.1.1`) rather than deleting.
-- **Git tag**: `git push --delete origin v0.1.0` (and `git tag -d v0.1.0`)
-  removes a tag pushed in error, *before* it is referenced by a published
-  release.
-- **Repo visibility**: a public flip can be reverted (`gh repo edit
-  --visibility private ...`), but assume anything published was cloned/cached;
-  treat the flip as irreversible for secret-exposure purposes.
+- **PyPI/TestPyPI**: a version cannot be deleted and reused. You can **yank** it
+  (via the project web UI or API); `pip` then skips it for new installs unless
+  pinned. Fix forward with a new version (`0.1.0rc2`, then `0.1.0`) rather than
+  deleting.
+- **Git tag**: `git push --delete origin v0.1.0rc1` (and `git tag -d v0.1.0rc1`)
+  removes a tag pushed in error before it has triggered a publish.
+- **Repo visibility**: already public; assume anything pushed is cloned/cached.
 
 ---
 
 ## Remaining human gates (summary)
 
-1. Confirm open-source posture → **G1** repo flip.
-2. Authorise name reservation via first upload → **G3** TestPyPI, then **G4**.
-3. Decide trusted-publishing vs manual-token for **G4**.
-4. Approve the multi-platform wheel matrix addition for a real release.
+1. **G2** — add the PyPI + TestPyPI trusted publishers (needs Rikk's accounts).
+2. **G3** — run the TestPyPI rehearsal and check the install.
+3. **G4** — tag `v0.1.0rc1` to publish to PyPI (reserves the name, ships the RC).

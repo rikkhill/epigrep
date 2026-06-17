@@ -38,6 +38,7 @@ demo = ["pandas", "streamlit", "altair"]
 test = ["pytest", "pandas"]
 
 [project.urls]
+Documentation = "https://rikkhill.github.io/epigrep/"
 Source = "https://github.com/rikkhill/epigrep"
 Issues = "https://github.com/rikkhill/epigrep/issues"
 

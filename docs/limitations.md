@@ -44,8 +44,8 @@ data if it matters.
 
 The Python API (`Event`, `Pattern`, the builder, `match`, `explain`, `schema`)
 and the JSON pattern format are the intended stable surface for 0.1. The text DSL
-is experimental and may change. The package is not yet on PyPI; install from
-source.
+is experimental and may change. The package is published on PyPI as a release
+candidate — install it with `pip install --pre epigrep`, or build from source.
 
 If a boundary here is the one thing standing between you and a use case, that is
 useful to know — the roadmap is shaped by which of these turn out to matter.

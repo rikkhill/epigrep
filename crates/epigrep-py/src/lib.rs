@@ -126,6 +126,16 @@ impl PyPattern {
         }
     }
 
+    /// Serialise the pattern to the stable JSON AST.
+    #[pyo3(signature = (pretty = false))]
+    fn to_json(&self, pretty: bool) -> String {
+        if pretty {
+            core::pattern_to_json_pretty(&self.inner)
+        } else {
+            core::pattern_to_json(&self.inner)
+        }
+    }
+
     fn __repr__(&self) -> String {
         format!("Pattern(steps={})", self.inner.steps.len())
     }
@@ -484,6 +494,14 @@ fn parse_pattern(text: &str) -> PyResult<PyPattern> {
         .map_err(|error| PyValueError::new_err(error.message().to_string()))
 }
 
+/// Build a pattern from the stable JSON AST, validating its structure.
+#[pyfunction]
+fn pattern_from_json(json: &str) -> PyResult<PyPattern> {
+    core::pattern_from_json(json)
+        .map(|inner| PyPattern { inner })
+        .map_err(PyValueError::new_err)
+}
+
 /// Return a copy of `events` sorted by partition then `(timestamp, input order)`.
 #[pyfunction]
 fn sort_events(mut events: Vec<PyEvent>) -> Vec<PyEvent> {
@@ -562,6 +580,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyMatch>()?;
     module.add_class::<PyNearMiss>()?;
     module.add_function(wrap_pyfunction!(parse_pattern, module)?)?;
+    module.add_function(wrap_pyfunction!(pattern_from_json, module)?)?;
     module.add_function(wrap_pyfunction!(sort_events, module)?)?;
     module.add_function(wrap_pyfunction!(match_events, module)?)?;
     module.add_function(wrap_pyfunction!(near_miss_events, module)?)?;

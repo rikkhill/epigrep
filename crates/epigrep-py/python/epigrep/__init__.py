@@ -11,6 +11,7 @@ from ._core import (
     Pattern,
     PatternBuilder,
     parse_pattern,
+    pattern_from_json,
     sort_events,
 )
 from ._core import match_events as _match_events
@@ -110,6 +111,7 @@ __all__ = [
     "Pattern",
     "PatternBuilder",
     "parse_pattern",
+    "pattern_from_json",
     "sort_events",
     "match",
     "explain",

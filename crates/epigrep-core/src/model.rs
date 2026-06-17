@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
@@ -5,7 +6,7 @@ pub type Timestamp = i64;
 pub type EventIndex = usize;
 pub type Bindings = BTreeMap<String, Value>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Event {
     pub partition: String,
     pub timestamp: Timestamp,
@@ -33,7 +34,7 @@ impl Event {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Value {
     String(String),
     Int(i64),
@@ -67,7 +68,7 @@ impl From<bool> for Value {
 }
 
 /// How many continuations each candidate start emits.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum MatchConsumption {
     /// Commit to the earliest successor satisfying each step and its transition;
     /// a start yields at most one match. Phase 1 default.
@@ -78,7 +79,7 @@ pub enum MatchConsumption {
     ExhaustivePerStart,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Pattern {
     pub steps: Vec<Step>,
     pub consumption: MatchConsumption,
@@ -97,7 +98,7 @@ impl Pattern {
         self
     }
 }
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Step {
     pub atom: Atom,
     pub transition_from_previous: Option<Transition>,
@@ -119,7 +120,7 @@ impl Step {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Atom {
     pub event_type: String,
     pub predicates: Vec<Predicate>,
@@ -198,7 +199,7 @@ impl Atom {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Capture {
     pub name: String,
     pub attribute: String,
@@ -213,7 +214,7 @@ impl Capture {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReferencePredicate {
     pub attribute: String,
     pub operator: ComparisonOperator,
@@ -244,7 +245,7 @@ impl ReferencePredicate {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Predicate {
     pub attribute: String,
     pub operator: ComparisonOperator,
@@ -272,7 +273,7 @@ impl Predicate {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ComparisonOperator {
     Eq,
     NotEq,
@@ -339,7 +340,7 @@ fn compare_values(actual: &Value, expected: &Value) -> Option<Ordering> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Transition {
     pub max_elapsed: Option<Timestamp>,
     pub absence: Vec<Atom>,
@@ -361,7 +362,7 @@ impl Transition {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Match {
     pub partition: String,
     pub participating_indices: Vec<EventIndex>,

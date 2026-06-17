@@ -220,3 +220,43 @@ def test_near_miss_summary_is_readable():
         epigrep.explain(parse_pattern("A -[<=5]-> B"), events)[0]
     )
     assert "would match if window >= 10" in summary
+
+
+def test_pattern_json_round_trip_matches_same():
+    story = data.care_pathway()
+    pattern = parse_pattern(story.pattern_text)
+    rebuilt = epigrep.pattern_from_json(pattern.to_json())
+    assert idx(match(rebuilt, story.events)) == idx(match(pattern, story.events))
+
+
+def test_pattern_from_json_hand_written_ast():
+    # A tool/agent can emit the structured AST directly instead of DSL text.
+    ast = """
+    {
+      "steps": [
+        {"atom": {"event_type": "A", "predicates": [], "reference_predicates": [],
+                  "captures": []},
+         "transition_from_previous": null},
+        {"atom": {"event_type": "B", "predicates": [], "reference_predicates": [],
+                  "captures": []},
+         "transition_from_previous": {"max_elapsed": 5, "absence": []}}
+      ],
+      "consumption": "FirstSuccessorPerStart"
+    }
+    """
+    pattern = epigrep.pattern_from_json(ast)
+    events = [Event("p", 0, "A"), Event("p", 3, "B")]
+    assert idx(match(pattern, events)) == [[0, 1]]
+
+
+def test_pattern_from_json_rejects_invalid():
+    with pytest.raises(ValueError):
+        epigrep.pattern_from_json("{ not json")
+    with pytest.raises(ValueError):
+        # First step must not carry a transition.
+        epigrep.pattern_from_json(
+            '{"steps": [{"atom": {"event_type": "A", "predicates": [], '
+            '"reference_predicates": [], "captures": []}, '
+            '"transition_from_previous": {"max_elapsed": null, "absence": []}}], '
+            '"consumption": "FirstSuccessorPerStart"}'
+        )

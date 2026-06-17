@@ -902,3 +902,38 @@ fn near_miss_prefers_the_nearest_reason() {
     let miss = only_near_miss(&events, &pattern);
     assert_eq!(miss.reason(), NearMissReason::PredicateFailed);
 }
+
+#[test]
+fn pattern_json_round_trips_through_the_ast() {
+    let pattern = Pattern::sequence(vec![
+        Step::first(atom("A").with_capture(Capture::new("u", "user_id"))),
+        Step::then(
+            atom("B")
+                .with_predicate(Predicate::new("score", ComparisonOperator::Gte, 3_i64))
+                .with_reference_predicate(ReferencePredicate::new(
+                    "user_id",
+                    ComparisonOperator::Eq,
+                    "u",
+                )),
+            Transition::any().within(5).with_absence(atom("C")),
+        ),
+    ])
+    .with_consumption(MatchConsumption::ExhaustivePerStart);
+
+    let json = pattern_to_json(&pattern);
+    let parsed = pattern_from_json(&json).expect("round-trips");
+    assert_eq!(parsed, pattern);
+}
+
+#[test]
+fn pattern_from_json_rejects_malformed_json() {
+    assert!(pattern_from_json("{ not json").is_err());
+}
+
+#[test]
+fn pattern_from_json_rejects_structurally_invalid_patterns() {
+    // First step must not carry a transition.
+    let bad = Pattern::sequence(vec![Step::then(atom("A"), Transition::any())]);
+    let json = pattern_to_json(&bad);
+    assert!(pattern_from_json(&json).is_err());
+}

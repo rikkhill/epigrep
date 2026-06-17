@@ -1,0 +1,50 @@
+site_name: Epigrep
+site_description: Temporal pattern matching over partitioned, timestamped event sequences.
+site_url: https://rikkhill.github.io/epigrep/
+repo_url: https://github.com/rikkhill/epigrep
+repo_name: rikkhill/epigrep
+copyright: MIT licensed.
+
+# The release-gate checklist is an internal ops document kept in docs/ for
+# convenience; it is not part of the public documentation site.
+exclude_docs: |
+  RELEASE-GATE.md
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.sections
+    - content.code.copy
+    - toc.integrate
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+nav:
+  - What is Epigrep?: index.md
+  - Getting started: getting-started.md
+  - Events and partitions: events-and-partitions.md
+  - Patterns: patterns.md
+  - Semantics: semantics.md
+  - Explanations: explanations.md
+  - Logs-first recipes: logs-first-recipes.md
+  - Limitations: limitations.md

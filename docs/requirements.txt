@@ -1,0 +1,3 @@
+# Documentation build dependencies (MkDocs Material).
+# Used by `mkdocs serve` / `mkdocs build` and the docs deploy workflow.
+mkdocs-material>=9.5,<10

@@ -1,57 +1,43 @@
 # epigrep
 
-Epigrep is a temporal event-pattern matcher: grep-like matching over typed,
-timestamped event sequences with explicit semantics and near-miss explanations.
+**Grep is good at lines. Epigrep is for sequences.**
 
-The current repository is a 0.1 release-candidate work area, not a published
-package. The core matcher, Python bindings, JSON AST, schema/match/explain
-surface, and Streamlit storyboard exist; the current hardening slice is making
-the logs-first examples, docs, and package artifacts boringly reproducible.
+Epigrep finds temporal patterns in partitioned, timestamped event streams — the
+sort of question that is awkward to express in grep, SQL, or ad-hoc pandas:
+*"a config reload followed by an OOM within two minutes, with no readiness
+success in between, per pod"*. You describe the sequence; Epigrep returns the
+matches, their spans and captured values, and — for the near-misses — an
+explanation of why they did not match.
 
-## Current Scope
+It is a small Rust core with Python bindings. The matching semantics are
+written down and tested rather than implied by the implementation.
 
-The `epigrep-core` crate supports:
+> Status: alpha (0.1). The Python API and JSON pattern format are the intended
+> stable surface; the text DSL is experimental. Not yet on PyPI — install from
+> source for now. MIT licensed.
 
-- partition-local matching over already-sorted event sequences;
-- event type atoms;
-- simple attribute predicates;
-- non-contiguous sequence matching;
-- inclusive time windows between participating events;
-- absence-between guards over stable event order;
-- capture/register equality across participating events;
-- a tiny provisional parser for examples like
-  `A[user_id as $u] -[<=5, no C]-> B[user_id == $u]`;
-- explicit match consumption mode:
-  - `FirstSuccessorPerStart` as the Phase 1 default;
-  - `ExhaustivePerStart` for parity and future semantics work.
+## When it helps
 
-There are two independent matcher backends:
+You have structured logs or event traces — Kubernetes events, deploy and
+readiness signals, request traces, pipeline steps — already parsed into typed
+events with timestamps. Somewhere in there is a *sequence* you care about, and
+it spans several lines, in order, within some time budget, possibly with a
+"this must not happen in between" clause. That is the shape Epigrep is for.
 
-- the **oracle** (`oracle_matches`), a naive depth-first backtracking matcher
-  that is the executable semantic source of truth;
-- the **compiled** matcher (`CompiledPattern`), a forward NFA-style simulation
-  that sweeps each partition once, carrying in-flight partial matches as
-  "threads" with their own bindings, window anchor, and absence state.
+It is **not** a database, a streaming platform, or a general anomaly detector.
+It matches patterns over event sequences you already have in memory.
 
-The two share only leaf predicate evaluation, not sequencing logic, so the
-property tests comparing them are a genuine cross-check rather than a tautology:
-a divergence is a real semantic bug. (Introducing the second backend already
-surfaced one — the first-successor consumption mode now commits to the earliest
-satisfying successor per step, rather than backtracking to find a completion.)
-
-## Python API
-
-For human-written examples, prefer the builder:
+## A first match
 
 ```python
 from epigrep import Event, Pattern, explain, match
 
 events = [
-    Event("api-0", 0, "config_reload", {"pod": "api-0"}),
+    Event("api-0", 0,  "config_reload",     {"pod": "api-0"}),
     Event("api-0", 30, "readiness_success", {"pod": "api-0"}),
-    Event("api-0", 70, "oom_killed", {"pod": "api-0"}),
-    Event("api-1", 0, "config_reload", {"pod": "api-1"}),
-    Event("api-1", 90, "oom_killed", {"pod": "api-1"}),
+    Event("api-0", 70, "oom_killed",        {"pod": "api-0"}),
+    Event("api-1", 0,  "config_reload",     {"pod": "api-1"}),
+    Event("api-1", 90, "oom_killed",        {"pod": "api-1"}),
 ]
 
 pattern = (
@@ -61,140 +47,101 @@ pattern = (
 )
 
 for found in match(pattern, events):
-    print(found.partition, list(found.indices), dict(found.captures))
+    print(found.partition, list(found.indices))   # api-1 [3, 4]
 
 for miss in explain(pattern, events):
-    print(miss.partition, miss.reason)
+    print(miss.partition, miss.reason)            # api-0 absence_blocked
 ```
 
-For tools and agents, prefer the stable JSON AST:
+`api-1` matches: a reload, then an OOM 90s later, nothing in between. `api-0`
+does not — a `readiness_success` lands between the reload and the OOM, so the
+`no=` clause rules it out. `explain()` tells you that, rather than leaving you
+to work it out.
 
-```python
-import json
-from epigrep import pattern_from_json
+## Patterns
 
-pattern = pattern_from_json(json.dumps({
-    "steps": [
-        {
-            "atom": {
-                "event_type": "config_reload",
-                "predicates": [],
-                "reference_predicates": [],
-                "captures": [],
-            },
-            "transition_from_previous": None,
-        },
-        {
-            "atom": {
-                "event_type": "oom_killed",
-                "predicates": [],
-                "reference_predicates": [],
-                "captures": [],
-            },
-            "transition_from_previous": {
-                "max_elapsed": 120,
-                "absence": [{
-                    "event_type": "readiness_success",
-                    "predicates": [],
-                    "reference_predicates": [],
-                    "captures": [],
-                }],
-            },
-        },
-    ],
-    "consumption": "FirstSuccessorPerStart",
-}))
+Two construction surfaces are stable:
+
+- the **builder** (`Pattern.event(...).then(...)`) for code written by hand;
+- a **JSON pattern format** for tools and agents that need to emit and validate
+  patterns programmatically (`pattern_from_json` / `Pattern.to_json`).
+
+A terse text DSL (`A[x as $u] -[<=5, no C]-> B[x == $u]`) also exists and is
+used by the examples, but it is **experimental** and outside the 0.1 stability
+guarantee — prefer the builder or JSON format.
+
+See the [documentation](#documentation) for events and partitions, the full
+pattern surface, the matching semantics, and near-miss explanations.
+
+## Install
+
+Not yet published to PyPI. Build a wheel from source with
+[maturin](https://www.maturin.rs/) and install it:
+
+```sh
+pip install maturin
+maturin build --release --manifest-path crates/epigrep-py/Cargo.toml --out dist
+pip install --no-index --find-links dist epigrep
 ```
 
-`parse_pattern(...)` remains importable for the Streamlit storyboard and quick
-experiments, but the text DSL is experimental and outside the 0.1 stability
-guarantee.
+For development, `maturin develop` builds the extension in place; see the
+[getting-started guide](docs/getting-started.md).
 
-## Logs-First Examples
+## Examples
 
-Executable logs-first fixtures live in `examples/logs-first/`. Each JSON file
-contains deterministic events, a builder recipe, the stable JSON AST, expected
-matches, expected near-misses, and short prose.
-
-After installing the local package:
+Runnable logs-first fixtures live in [`examples/logs-first/`](examples/logs-first).
+Each carries deterministic events, the pattern in both builder and JSON form,
+and the expected matches and near-misses:
 
 ```sh
 python examples/logs-first/run.py
-python -m pytest crates/epigrep-py/tests/test_logs_first_examples.py
 ```
 
-The fixture set currently covers:
+They cover config-reload → OOM, deploy → error spike → rollback, repeated
+readiness failure → restart, fatal error without a prior warning, and a
+same-request capture constraint. The [recipes page](docs/logs-first-recipes.md)
+walks through them.
 
-- config reload -> OOM within two minutes, with no readiness success between;
-- deploy -> error spike -> rollback;
-- repeated readiness failure -> restart;
-- fatal error with no prior warning;
-- same-request capture/reference equality.
+## Documentation
 
-## Visual harness
+The docs source lives in [`docs/`](docs) and is published with MkDocs:
 
-The `epigrep-py` crate exposes the Rust core to Python via PyO3/maturin as the
-`epigrep` package: construct events, build/parse patterns, run matches, and
-inspect partitions, spans, captures, and bindings. Pandas helpers
-(`events_to_frame`, `matches_to_frame`) and a demo-data module (`epigrep.data`)
-support tests and the visual harness.
+| Page | What it covers |
+|------|----------------|
+| [What is Epigrep?](docs/index.md) | The idea, in one page |
+| [Getting started](docs/getting-started.md) | Build, install, first match |
+| [Events and partitions](docs/events-and-partitions.md) | Event shape, ordering, ties |
+| [Patterns](docs/patterns.md) | Builder, JSON format, DSL status |
+| [Semantics](docs/semantics.md) | What a match and a non-match mean |
+| [Explanations](docs/explanations.md) | Near-misses and their guarantees |
+| [Logs-first recipes](docs/logs-first-recipes.md) | The example fixtures, explained |
+| [Limitations](docs/limitations.md) | What it does not do |
 
-`epigrep.explain(pattern, events)` returns *near-misses* — starts that cannot
-complete (in any consumption mode), each with its deepest reachable partial path
-and the reason the next step failed (`predicate_failed`, `absence_blocked`,
-`window_exceeded`, or `no_successor`). Pandas dataframe helpers are available
-when pandas is installed; the core package does not require pandas just to
-match/explain events.
+To preview the site locally:
 
-The Rust oracle/compiled parity tests remain authoritative; the Python API and
-the Streamlit app are wrappers, not the semantic source of truth.
+```sh
+pip install -r docs/requirements.txt
+mkdocs serve
+```
 
-## Non-Goals (still deferred)
+## What it does not do (yet)
 
-- mining;
-- Loki or observability adapters;
-- WASM / static public demo;
-- robust/numeric time-series eventisation;
-- distributed streaming, watermarks, late data, or durable state.
+Single-machine, in-memory matching over events you have already parsed into the
+`(partition, timestamp, type, attributes)` shape. No streaming or late data, no
+mining, no log-line parsing, no distributed execution. These are deliberate
+0.1 boundaries, not oversights — see [limitations](docs/limitations.md).
 
 ## Development
 
-### Rust core
-
 ```sh
-cargo test                 # core test suite (default workspace member)
+cargo test                  # Rust core
 cargo fmt --all --check
 cargo clippy --all-targets
 ```
 
-`epigrep-py` is excluded from the default workspace set because it is a Python
-extension linked against the active interpreter; build it with maturin, not
-bare `cargo build`.
+Python bindings and the Streamlit storyboard need a Python environment with
+maturin; the [getting-started guide](docs/getting-started.md) has the full loop.
 
-### Python bindings + visual harness
+## Licence
 
-Requires a Python environment with `maturin` (and, for the app, `streamlit`).
-Using `uv`:
-
-```sh
-uv venv --python 3.12 .venv
-uv pip install --python .venv maturin pytest pandas streamlit altair
-.venv/bin/maturin develop --manifest-path crates/epigrep-py/Cargo.toml
-.venv/bin/python -m pytest crates/epigrep-py/tests/
-.venv/bin/python examples/logs-first/run.py
-.venv/bin/streamlit run apps/epigrep-storyboard/app.py
-```
-
-### Package artifact smoke
-
-The package is not uploaded to PyPI/TestPyPI in this slice. To verify a local
-wheel/sdist and install the wheel into a clean environment:
-
-```sh
-rm -rf dist /tmp/epigrep-smoke
-.venv/bin/maturin build --release --manifest-path crates/epigrep-py/Cargo.toml --out dist
-.venv/bin/maturin sdist --manifest-path crates/epigrep-py/Cargo.toml --out dist
-python3 -m venv /tmp/epigrep-smoke
-/tmp/epigrep-smoke/bin/python -m pip install --no-index --find-links dist epigrep
-/tmp/epigrep-smoke/bin/python examples/logs-first/run.py
-```
+MIT. See [LICENSE](LICENSE).

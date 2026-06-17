@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 300" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" role="img" aria-label="Two pod swimlanes; api-1 matches config reload then OOM, api-0 is blocked by a readiness success in between">
+  <style>
+    .lane    { fill: #f4f5f8; }
+    .lanelbl { fill: #444; font-size: 13px; font-weight: 600; }
+    .evt     { fill: #5566aa; }
+    .evtlbl  { fill: #333; font-size: 11px; }
+    .axis    { stroke: #c9ccd6; stroke-width: 1; }
+    .axislbl { fill: #888; font-size: 10px; }
+    .match   { stroke: #2e7d32; stroke-width: 2.5; fill: none; }
+    .matchdot{ fill: #2e7d32; }
+    .block   { stroke: #b26a00; stroke-width: 2; fill: none; stroke-dasharray: 5 4; }
+    .blockdot{ fill: #b26a00; }
+    .tag     { font-size: 11px; font-weight: 600; }
+    .title   { fill: #1a1a2e; font-size: 14px; font-weight: 700; }
+  </style>
+
+  <text x="20" y="28" class="title">config_reload → oom_killed within 120s, no readiness_success between</text>
+
+  <!-- time axis -->
+  <line x1="120" y1="262" x2="720" y2="262" class="axis"/>
+  <text x="120" y="280" class="axislbl">t = 0</text>
+  <text x="690" y="280" class="axislbl">time →</text>
+
+  <!-- api-1 lane: MATCH -->
+  <rect x="120" y="60" width="600" height="64" rx="6" class="lane"/>
+  <text x="20" y="96" class="lanelbl">api-1</text>
+  <!-- match arc -->
+  <path d="M 200 92 C 360 40, 520 40, 600 92" class="match"/>
+  <circle cx="200" cy="92" r="7" class="matchdot"/>
+  <circle cx="600" cy="92" r="7" class="matchdot"/>
+  <text x="200" y="116" text-anchor="middle" class="evtlbl">config_reload</text>
+  <text x="600" y="116" text-anchor="middle" class="evtlbl">oom_killed</text>
+  <text x="640" y="84" class="tag" fill="#2e7d32">✓ match</text>
+
+  <!-- api-0 lane: BLOCKED -->
+  <rect x="120" y="160" width="600" height="64" rx="6" class="lane"/>
+  <text x="20" y="196" class="lanelbl">api-0</text>
+  <path d="M 200 192 C 320 150, 470 150, 560 192" class="block"/>
+  <circle cx="200" cy="192" r="7" class="evt"/>
+  <circle cx="380" cy="192" r="7" class="blockdot"/>
+  <circle cx="560" cy="192" r="7" class="evt"/>
+  <text x="200" y="216" text-anchor="middle" class="evtlbl">config_reload</text>
+  <text x="380" y="216" text-anchor="middle" class="evtlbl" fill="#b26a00">readiness_success</text>
+  <text x="560" y="216" text-anchor="middle" class="evtlbl">oom_killed</text>
+  <text x="600" y="184" class="tag" fill="#b26a00">✗ blocked</text>
+</svg>

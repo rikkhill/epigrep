@@ -30,25 +30,20 @@ jobs:
   build:
     name: wheels (${{ matrix.os }} / ${{ matrix.target }})
     runs-on: ${{ matrix.os }}
-    # Most wheels build in a couple of minutes; the experimental Intel-macOS
-    # entry gets a much longer budget because its hosted runner queue can be
-    # slow to assign. continue-on-error (below) keeps a stalled Intel job from
-    # failing or blocking the run — the publish step uses skip-existing.
-    timeout-minutes: ${{ matrix.timeout || 30 }}
-    continue-on-error: ${{ matrix.experimental || false }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
           - { os: ubuntu-latest,  target: x86_64 }
           - { os: ubuntu-latest,  target: aarch64 }
-          # Intel macOS (macos-13): experimental. Dropped earlier because the
-          # hosted runner queue stalled and blocked publish; re-added with a
-          # long timeout and continue-on-error to see whether it eventually
-          # completes without holding up the rest of the matrix. Apple Silicon
-          # is still the macOS wheel that matters; Intel Macs otherwise fall
-          # back to building from the sdist.
-          - { os: macos-13,       target: x86_64, experimental: true, timeout: 120 }
+          # Intel macOS (macos-13) omitted: the hosted runner is effectively
+          # unavailable. An experiment on 2026-06-17 left a macos-13 job queued
+          # for 2h+ without ever being assigned a runner — and a job stuck in
+          # the *queue* is not rescued by timeout-minutes or continue-on-error
+          # (those only apply once it is running), so it silently blocks the
+          # publish job. Apple Silicon is the macOS wheel that matters; Intel
+          # Macs fall back to building from the sdist (needs a Rust toolchain).
           - { os: macos-14,       target: aarch64 }
           - { os: windows-latest, target: x64 }
     steps:

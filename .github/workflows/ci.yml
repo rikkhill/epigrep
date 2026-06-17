@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy (core)
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Clippy (python bindings)
+        run: cargo clippy -p epigrep-py --features extension-module -- -D warnings
+      - name: Test
+        run: cargo test
+      - name: Benches compile
+        run: cargo bench --no-run
+
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install build/test deps
+        run: pip install maturin pytest pandas
+      - name: Build wheel
+        run: maturin build --release --manifest-path crates/epigrep-py/Cargo.toml --out dist
+      - name: Install wheel
+        run: pip install --no-index --find-links dist epigrep
+      - name: Pytest
+        run: python -m pytest crates/epigrep-py/tests/

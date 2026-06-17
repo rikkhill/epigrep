@@ -94,6 +94,9 @@ pub enum NearMissDetail {
         candidate_index: EventIndex,
         blocking_index: EventIndex,
         blocking_event_type: String,
+        /// Whether the candidate otherwise satisfies the step (so removing the
+        /// blocker would let it match); false if it also fails a predicate.
+        candidate_satisfies: bool,
     },
     /// The nearest right-type candidate and how far outside the window it sat.
     /// It would have matched had the window been at least `gap`.
@@ -301,7 +304,7 @@ fn classify(
     // Within-window candidates always precede beyond-window ones (events are
     // sorted by timestamp), so the first predicate miss we hit, in index order,
     // is the nearest one and wins on priority.
-    let mut first_absence: Option<(EventIndex, EventIndex, String)> = None;
+    let mut first_absence: Option<(EventIndex, EventIndex, String, bool)> = None;
     let mut first_window: Option<(EventIndex, Timestamp)> = None;
 
     for candidate_index in frontier + 1..partition_end {
@@ -331,7 +334,13 @@ fn classify(
             })
             .map(|(offset, event)| (frontier + 1 + offset, event.event_type.clone()));
         if let Some((blocking_index, blocking_type)) = blocking {
-            first_absence.get_or_insert((candidate_index, blocking_index, blocking_type));
+            let candidate_satisfies = atom.evaluate(candidate, bindings).is_some();
+            first_absence.get_or_insert((
+                candidate_index,
+                blocking_index,
+                blocking_type,
+                candidate_satisfies,
+            ));
             continue;
         }
 
@@ -343,11 +352,14 @@ fn classify(
         };
     }
 
-    if let Some((candidate_index, blocking_index, blocking_event_type)) = first_absence {
+    if let Some((candidate_index, blocking_index, blocking_event_type, candidate_satisfies)) =
+        first_absence
+    {
         return NearMissDetail::AbsenceBlocked {
             candidate_index,
             blocking_index,
             blocking_event_type,
+            candidate_satisfies,
         };
     }
     if let Some((candidate_index, gap)) = first_window {

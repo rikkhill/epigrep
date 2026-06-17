@@ -350,11 +350,13 @@ fn detail_to_py(py: Python<'_>, detail: &core::NearMissDetail) -> PyResult<Py<Py
             candidate_index,
             blocking_index,
             blocking_event_type,
+            candidate_satisfies,
         } => {
             dict.set_item("kind", "absence_blocked")?;
             dict.set_item("candidate_index", *candidate_index)?;
             dict.set_item("blocking_index", *blocking_index)?;
             dict.set_item("blocking_event_type", blocking_event_type)?;
+            dict.set_item("candidate_satisfies", *candidate_satisfies)?;
         }
         core::NearMissDetail::WindowExceeded {
             candidate_index,

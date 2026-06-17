@@ -774,6 +774,36 @@ fn near_miss_absence_blocked() {
             candidate_index: 2,
             blocking_index: 1,
             blocking_event_type: "C".to_owned(),
+            candidate_satisfies: true,
+        }
+    );
+}
+
+#[test]
+fn near_miss_absence_blocked_candidate_also_failing_predicate() {
+    // The only B in window is blocked by C and also fails its predicate, so the
+    // counterfactual "remove C" would not, on its own, produce a match.
+    let events = vec![
+        Event::new("p", 0, "A"),
+        Event::new("p", 1, "C"),
+        Event::new("p", 2, "B").with_attr("score", 1_i64.into()),
+    ];
+    let pattern = Pattern::sequence(vec![
+        Step::first(atom("A")),
+        Step::then(
+            atom("B").with_predicate(Predicate::new("score", ComparisonOperator::Gte, 3_i64)),
+            Transition::any().with_absence(atom("C")),
+        ),
+    ]);
+
+    let miss = only_near_miss(&events, &pattern);
+    assert_eq!(
+        miss.detail,
+        NearMissDetail::AbsenceBlocked {
+            candidate_index: 2,
+            blocking_index: 1,
+            blocking_event_type: "C".to_owned(),
+            candidate_satisfies: false,
         }
     );
 }

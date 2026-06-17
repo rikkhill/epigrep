@@ -222,6 +222,20 @@ def test_near_miss_summary_is_readable():
     assert "would match if window >= 10" in summary
 
 
+def test_absence_counterfactual_when_candidate_otherwise_matches():
+    events = [Event("p", 0, "A"), Event("p", 1, "C"), Event("p", 2, "B")]
+    nm = epigrep.explain(parse_pattern("A -[no C]-> B"), events)[0]
+    assert nm.detail["candidate_satisfies"] is True
+    assert "would match if C at 1 were absent" in epigrep.near_miss_summary(nm)
+
+
+def test_absence_counterfactual_hedged_when_candidate_also_fails_predicate():
+    events = [Event("p", 0, "A"), Event("p", 1, "C"), Event("p", 2, "B", {"score": 1})]
+    nm = epigrep.explain(parse_pattern("A -[no C]-> B[score >= 3]"), events)[0]
+    assert nm.detail["candidate_satisfies"] is False
+    assert "also fails its own predicate" in epigrep.near_miss_summary(nm)
+
+
 def test_pattern_json_round_trip_matches_same():
     story = data.care_pathway()
     pattern = parse_pattern(story.pattern_text)

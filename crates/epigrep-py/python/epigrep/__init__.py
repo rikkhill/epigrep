@@ -72,27 +72,33 @@ def near_miss_summary(near_miss) -> str:
         for failure in detail["failures"]:
             if failure["type"] == "predicate":
                 parts.append(
-                    f"{failure['attribute']} {failure['operator']} "
-                    f"{failure['expected']!r} (actual {failure['actual']!r})"
+                    f"would match if {failure['attribute']} {failure['operator']} "
+                    f"{failure['expected']!r} (was {failure['actual']!r})"
                 )
             elif failure["type"] == "reference":
                 parts.append(
-                    f"{failure['attribute']} {failure['operator']} "
+                    f"would match if {failure['attribute']} {failure['operator']} "
                     f"${failure['binding']} (bound {failure['bound']!r}, "
-                    f"actual {failure['actual']!r})"
+                    f"was {failure['actual']!r})"
                 )
             else:  # capture conflict
                 parts.append(
                     f"{failure['attribute']} as ${failure['name']} conflicts "
-                    f"(bound {failure['bound']!r}, actual {failure['actual']!r})"
+                    f"(bound {failure['bound']!r}, was {failure['actual']!r})"
                 )
         clauses = "; ".join(parts) if parts else "predicate failed"
-        return f"{head}; {nxt} at {detail['event_index']} failed {clauses}"
+        return f"{head}; {nxt} at {detail['event_index']}: {clauses}"
 
     if kind == "absence_blocked":
+        blocker = f"{detail['blocking_event_type']} at {detail['blocking_index']}"
+        if detail["candidate_satisfies"]:
+            return (
+                f"{head}; would match if {blocker} were absent (before "
+                f"{nxt} at {detail['candidate_index']})"
+            )
         return (
-            f"{head}; {nxt} at {detail['candidate_index']} blocked by "
-            f"{detail['blocking_event_type']} at {detail['blocking_index']}"
+            f"{head}; {nxt} at {detail['candidate_index']} blocked by {blocker}, "
+            f"and also fails its own predicate"
         )
 
     if kind == "window_exceeded":

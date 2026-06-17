@@ -36,7 +36,9 @@ jobs:
         include:
           - { os: ubuntu-latest,  target: x86_64 }
           - { os: ubuntu-latest,  target: aarch64 }
-          - { os: macos-13,       target: x86_64 }
+          # Intel macOS (macos-13) omitted: hosted runner queue is unreliable
+          # and Apple Silicon is the macOS wheel that matters now. Intel Macs
+          # fall back to building from the sdist.
           - { os: macos-14,       target: aarch64 }
           - { os: windows-latest, target: x64 }
     steps:

@@ -43,8 +43,10 @@ order-by, no self-join, no manual grouping.
 
 ## The same shape in your logs
 
-Now the version this was built for. The events are structured log lines, grouped
-by pod instead of by parcel:
+The use case Epigrep leads with is operational logs — where the awkwardness of
+grep and SQL bites hardest, and the one most people will reach for first. The
+machinery is the same; here the events are structured log lines, grouped by pod
+instead of by parcel:
 
 ```text title="app.log"
 09:00:00   api-1   config_reload

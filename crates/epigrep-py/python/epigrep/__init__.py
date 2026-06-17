@@ -1,7 +1,7 @@
 """epigrep: temporal event-pattern matching with a Rust core.
 
 The Rust oracle and compiled matchers remain the semantic source of truth; this
-package is a thin, pandas-friendly wrapper plus demo data for the visual harness.
+package is a thin wrapper plus optional pandas helpers and demo data.
 """
 
 from ._core import (
@@ -16,8 +16,32 @@ from ._core import (
 )
 from ._core import match_events as _match_events
 from ._core import near_miss_events as _near_miss_events
-from .frame import events_to_frame, matches_to_frame, near_misses_to_frame
 from .schema import schema
+
+
+def events_to_frame(events):
+    """Return a pandas DataFrame for events.
+
+    Requires pandas; install the ``frame`` or ``test`` extra, or install pandas
+    directly.
+    """
+    from .frame import events_to_frame as _events_to_frame
+
+    return _events_to_frame(events)
+
+
+def matches_to_frame(matches):
+    """Return a pandas DataFrame for matches."""
+    from .frame import matches_to_frame as _matches_to_frame
+
+    return _matches_to_frame(matches)
+
+
+def near_misses_to_frame(near_misses):
+    """Return a pandas DataFrame for near-misses."""
+    from .frame import near_misses_to_frame as _near_misses_to_frame
+
+    return _near_misses_to_frame(near_misses)
 
 
 def match(pattern, events, *, exhaustive=False, oracle=False, assume_sorted=False):

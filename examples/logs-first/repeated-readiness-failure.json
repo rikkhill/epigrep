@@ -1,0 +1,44 @@
+{
+  "key": "repeated_readiness_failure",
+  "title": "Repeated readiness failure followed by restart",
+  "description": "Find pods with two readiness failures close together followed by a restart.",
+  "events": [
+    {"partition": "worker-0", "ts": 0, "typ": "readiness_failure", "attrs": {"pod": "worker-0"}},
+    {"partition": "worker-0", "ts": 10, "typ": "readiness_failure", "attrs": {"pod": "worker-0"}},
+    {"partition": "worker-0", "ts": 25, "typ": "restart", "attrs": {"pod": "worker-0"}},
+    {"partition": "worker-1", "ts": 0, "typ": "readiness_failure", "attrs": {"pod": "worker-1"}},
+    {"partition": "worker-1", "ts": 15, "typ": "readiness_failure", "attrs": {"pod": "worker-1"}}
+  ],
+  "builder": [
+    {"op": "event", "typ": "readiness_failure"},
+    {"op": "then", "typ": "readiness_failure", "within": 30},
+    {"op": "then", "typ": "restart", "within": 30},
+    {"op": "build"}
+  ],
+  "pattern_json": {
+    "steps": [
+      {
+        "atom": {"event_type": "readiness_failure", "predicates": [], "reference_predicates": [], "captures": []},
+        "transition_from_previous": null
+      },
+      {
+        "atom": {"event_type": "readiness_failure", "predicates": [], "reference_predicates": [], "captures": []},
+        "transition_from_previous": {"max_elapsed": 30, "absence": []}
+      },
+      {
+        "atom": {"event_type": "restart", "predicates": [], "reference_predicates": [], "captures": []},
+        "transition_from_previous": {"max_elapsed": 30, "absence": []}
+      }
+    ],
+    "consumption": "FirstSuccessorPerStart"
+  },
+  "expected_matches": [
+    {"partition": "worker-0", "indices": [0, 1, 2], "captures": {}}
+  ],
+  "expected_near_misses": [
+    {"partition": "worker-0", "indices": [1], "reason": "no_successor"},
+    {"partition": "worker-1", "indices": [3, 4], "reason": "no_successor"},
+    {"partition": "worker-1", "indices": [4], "reason": "no_successor"}
+  ],
+  "notes": "worker-1 has repeated readiness failures but no restart."
+}

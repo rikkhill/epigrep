@@ -2,48 +2,53 @@
 
 Temporal event-pattern matching over partitioned, timestamped event sequences —
 grep-like matching for "what happened, in what order, within what time" — with
-**explicit semantics** and **near-miss explanations**. A small, fast Rust core
-with Python bindings.
+**explicit semantics** and **near-miss explanations**.
 
 > Give me partitioned timestamped events and a temporal pattern; I will return
 > spans, captures, and explanations with explicit semantics.
 
 ## Install
 
+This package is not yet published to PyPI/TestPyPI. In the 0.1 RC work area,
+install from a local wheel built by maturin:
+
 ```sh
-pip install epigrep
+maturin build --release --manifest-path crates/epigrep-py/Cargo.toml --out dist
+python -m pip install --no-index --find-links dist epigrep
 ```
 
-Prebuilt wheels mean you do not need a Rust toolchain to use the package.
-
-## Quick start
+## Quick Start
 
 ```python
-from epigrep import Event, parse_pattern, match, explain, schema
+from epigrep import Event, Pattern, explain, match, schema
 
 stream = [
-    Event("child-1", 0, "entered_care"),
-    Event("child-1", 2, "placement_change"),
-    Event("child-1", 5, "safeguarding_flag", {"severity": 4}),
-    Event("child-2", 0, "entered_care"),
-    Event("child-2", 4, "safeguarding_flag", {"severity": 4}),
+    Event("api-0", 0, "config_reload", {"pod": "api-0"}),
+    Event("api-0", 30, "readiness_success", {"pod": "api-0"}),
+    Event("api-0", 70, "oom_killed", {"pod": "api-0"}),
+    Event("api-1", 0, "config_reload", {"pod": "api-1"}),
+    Event("api-1", 90, "oom_killed", {"pod": "api-1"}),
 ]
 
-pattern = parse_pattern(
-    "entered_care -[<=5, no placement_change]-> safeguarding_flag[severity >= 3]"
+pattern = (
+    Pattern.event("config_reload")
+    .then("oom_killed", within=120, no="readiness_success")
+    .build()
 )
 
 for m in match(pattern, stream):
-    print(m.partition, m.indices, m.captures)   # child-2 [3, 4] {}
+    print(m.partition, list(m.indices), dict(m.captures))   # api-1 [3, 4] {}
 
 # Why didn't the others match?
 for nm in explain(pattern, stream):
-    print(nm.reason)                             # child-1: absence_blocked
+    print(nm.partition, nm.reason)                # api-0 absence_blocked
 ```
 
 `schema(stream)` summarises the event types and attributes available;
 `match(...)` runs a pattern (compiled by default, `exhaustive=` and `oracle=`
 flags available); `explain(...)` returns near-misses with structured detail.
+Pandas dataframe helpers are available when pandas is installed; matching and
+explanation do not require pandas.
 
 ## Programmatic / agent use
 
@@ -51,11 +56,14 @@ Patterns round-trip through a **stable JSON AST**, the recommended interface for
 tools and LLMs (emit/validate a structured pattern rather than DSL text):
 
 ```python
-from epigrep import parse_pattern, pattern_from_json
+from epigrep import Pattern, pattern_from_json
 
-ast = parse_pattern("A -[<=5]-> B").to_json()
+ast = Pattern.event("A").then("B", within=5).build().to_json()
 pattern = pattern_from_json(ast)   # validated; safe to match
 ```
+
+`parse_pattern(...)` remains importable for demos and experiments, but the text
+DSL is provisional and outside the 0.1 stability guarantee.
 
 ## Semantics
 

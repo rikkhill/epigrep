@@ -1,0 +1,42 @@
+{
+  "key": "config_reload_oom",
+  "title": "Config reload followed by OOM without readiness success",
+  "description": "Find pods where a config reload is followed by an OOM kill within 2 minutes, with no readiness success in between.",
+  "events": [
+    {"partition": "api-0", "ts": 0, "typ": "config_reload", "attrs": {"pod": "api-0", "service": "api"}},
+    {"partition": "api-0", "ts": 30, "typ": "readiness_success", "attrs": {"pod": "api-0", "service": "api"}},
+    {"partition": "api-0", "ts": 70, "typ": "oom_killed", "attrs": {"pod": "api-0", "service": "api"}},
+    {"partition": "api-1", "ts": 0, "typ": "config_reload", "attrs": {"pod": "api-1", "service": "api"}},
+    {"partition": "api-1", "ts": 90, "typ": "oom_killed", "attrs": {"pod": "api-1", "service": "api"}}
+  ],
+  "builder": [
+    {"op": "event", "typ": "config_reload"},
+    {"op": "then", "typ": "oom_killed", "within": 120, "no": "readiness_success"},
+    {"op": "build"}
+  ],
+  "pattern_json": {
+    "steps": [
+      {
+        "atom": {"event_type": "config_reload", "predicates": [], "reference_predicates": [], "captures": []},
+        "transition_from_previous": null
+      },
+      {
+        "atom": {"event_type": "oom_killed", "predicates": [], "reference_predicates": [], "captures": []},
+        "transition_from_previous": {
+          "max_elapsed": 120,
+          "absence": [
+            {"event_type": "readiness_success", "predicates": [], "reference_predicates": [], "captures": []}
+          ]
+        }
+      }
+    ],
+    "consumption": "FirstSuccessorPerStart"
+  },
+  "expected_matches": [
+    {"partition": "api-1", "indices": [3, 4], "captures": {}}
+  ],
+  "expected_near_misses": [
+    {"partition": "api-0", "indices": [0], "reason": "absence_blocked"}
+  ],
+  "notes": "api-0 is blocked by readiness_success; api-1 is the planted positive."
+}

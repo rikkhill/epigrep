@@ -6,6 +6,7 @@ version = "0.1.0"
 edition = "2021"
 license.workspace = true
 repository.workspace = true
+description = "Python bindings for the epigrep temporal event-pattern matcher."
 
 [lib]
 name = "epigrep_py"

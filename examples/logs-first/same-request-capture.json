@@ -1,0 +1,61 @@
+{
+  "key": "same_request_capture",
+  "title": "Same-request capture equality",
+  "description": "Find request traces where start, database query, and response events all carry the same request_id.",
+  "events": [
+    {"partition": "trace-a", "ts": 0, "typ": "request_start", "attrs": {"request_id": "req-1"}},
+    {"partition": "trace-a", "ts": 5, "typ": "db_query", "attrs": {"request_id": "req-1", "table": "orders"}},
+    {"partition": "trace-a", "ts": 10, "typ": "response_sent", "attrs": {"request_id": "req-1", "status": 200}},
+    {"partition": "trace-b", "ts": 0, "typ": "request_start", "attrs": {"request_id": "req-2"}},
+    {"partition": "trace-b", "ts": 5, "typ": "db_query", "attrs": {"request_id": "req-other", "table": "orders"}},
+    {"partition": "trace-b", "ts": 10, "typ": "response_sent", "attrs": {"request_id": "req-2", "status": 200}}
+  ],
+  "builder": [
+    {"op": "event", "typ": "request_start"},
+    {"op": "capture", "attribute": "request_id", "name": "request"},
+    {"op": "then", "typ": "db_query", "within": 30},
+    {"op": "where_ref_eq", "attribute": "request_id", "name": "request"},
+    {"op": "then", "typ": "response_sent", "within": 30},
+    {"op": "where_ref_eq", "attribute": "request_id", "name": "request"},
+    {"op": "build"}
+  ],
+  "pattern_json": {
+    "steps": [
+      {
+        "atom": {
+          "event_type": "request_start",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": [{"name": "request", "attribute": "request_id"}]
+        },
+        "transition_from_previous": null
+      },
+      {
+        "atom": {
+          "event_type": "db_query",
+          "predicates": [],
+          "reference_predicates": [{"attribute": "request_id", "operator": "Eq", "binding": "request"}],
+          "captures": []
+        },
+        "transition_from_previous": {"max_elapsed": 30, "absence": []}
+      },
+      {
+        "atom": {
+          "event_type": "response_sent",
+          "predicates": [],
+          "reference_predicates": [{"attribute": "request_id", "operator": "Eq", "binding": "request"}],
+          "captures": []
+        },
+        "transition_from_previous": {"max_elapsed": 30, "absence": []}
+      }
+    ],
+    "consumption": "FirstSuccessorPerStart"
+  },
+  "expected_matches": [
+    {"partition": "trace-a", "indices": [0, 1, 2], "captures": {"request": "req-1"}}
+  ],
+  "expected_near_misses": [
+    {"partition": "trace-b", "indices": [3], "reason": "predicate_failed"}
+  ],
+  "notes": "trace-b fails because the db_query request_id differs from the captured request_start request_id."
+}

@@ -141,18 +141,127 @@ impl PyPattern {
     }
 }
 
-/// A small fluent builder for the common sequence/window/absence subset.
+/// A small fluent builder for the stable human-facing construction path.
 ///
-/// Predicate- and capture-heavy patterns are better expressed with
-/// [`parse_pattern`]; this builder deliberately stays simple.
+/// The text DSL remains experimental; this builder covers the common
+/// event-type, predicate, capture/reference, window, and absence subset used by
+/// the examples.
 #[pyclass]
 #[derive(Clone)]
 struct PatternBuilder {
     steps: Vec<core::Step>,
 }
 
+impl PatternBuilder {
+    fn with_last_atom(&self, update: impl FnOnce(core::Atom) -> core::Atom) -> Self {
+        let mut steps = self.steps.clone();
+        let last = steps
+            .last_mut()
+            .expect("PatternBuilder always contains at least one step");
+        last.atom = update(last.atom.clone());
+        Self { steps }
+    }
+}
+
+fn normalize_binding_name(name: &str) -> String {
+    name.trim()
+        .strip_prefix('$')
+        .unwrap_or(name.trim())
+        .to_owned()
+}
+
 #[pymethods]
 impl PatternBuilder {
+    /// Add `attribute == value` to the current step.
+    fn where_eq(&self, attribute: String, value: &Bound<'_, PyAny>) -> PyResult<PatternBuilder> {
+        let value = py_to_value(value)?;
+        Ok(self.with_last_atom(|atom| {
+            atom.with_predicate(core::Predicate::new(
+                attribute,
+                core::ComparisonOperator::Eq,
+                value,
+            ))
+        }))
+    }
+
+    /// Add `attribute != value` to the current step.
+    fn where_ne(&self, attribute: String, value: &Bound<'_, PyAny>) -> PyResult<PatternBuilder> {
+        let value = py_to_value(value)?;
+        Ok(self.with_last_atom(|atom| {
+            atom.with_predicate(core::Predicate::new(
+                attribute,
+                core::ComparisonOperator::NotEq,
+                value,
+            ))
+        }))
+    }
+
+    /// Add `attribute > value` to the current step.
+    fn where_gt(&self, attribute: String, value: &Bound<'_, PyAny>) -> PyResult<PatternBuilder> {
+        let value = py_to_value(value)?;
+        Ok(self.with_last_atom(|atom| {
+            atom.with_predicate(core::Predicate::new(
+                attribute,
+                core::ComparisonOperator::Gt,
+                value,
+            ))
+        }))
+    }
+
+    /// Add `attribute >= value` to the current step.
+    fn where_gte(&self, attribute: String, value: &Bound<'_, PyAny>) -> PyResult<PatternBuilder> {
+        let value = py_to_value(value)?;
+        Ok(self.with_last_atom(|atom| {
+            atom.with_predicate(core::Predicate::new(
+                attribute,
+                core::ComparisonOperator::Gte,
+                value,
+            ))
+        }))
+    }
+
+    /// Add `attribute < value` to the current step.
+    fn where_lt(&self, attribute: String, value: &Bound<'_, PyAny>) -> PyResult<PatternBuilder> {
+        let value = py_to_value(value)?;
+        Ok(self.with_last_atom(|atom| {
+            atom.with_predicate(core::Predicate::new(
+                attribute,
+                core::ComparisonOperator::Lt,
+                value,
+            ))
+        }))
+    }
+
+    /// Add `attribute <= value` to the current step.
+    fn where_lte(&self, attribute: String, value: &Bound<'_, PyAny>) -> PyResult<PatternBuilder> {
+        let value = py_to_value(value)?;
+        Ok(self.with_last_atom(|atom| {
+            atom.with_predicate(core::Predicate::new(
+                attribute,
+                core::ComparisonOperator::Lte,
+                value,
+            ))
+        }))
+    }
+
+    /// Capture `attribute` from the current step as `$name`.
+    fn capture(&self, attribute: String, name: String) -> PatternBuilder {
+        let name = normalize_binding_name(&name);
+        self.with_last_atom(|atom| atom.with_capture(core::Capture::new(name, attribute)))
+    }
+
+    /// Add `attribute == $name` to the current step.
+    fn where_ref_eq(&self, attribute: String, name: String) -> PatternBuilder {
+        let name = normalize_binding_name(&name);
+        self.with_last_atom(|atom| {
+            atom.with_reference_predicate(core::ReferencePredicate::new(
+                attribute,
+                core::ComparisonOperator::Eq,
+                name,
+            ))
+        })
+    }
+
     /// Append a step matching `typ`, optionally within `within` time units of
     /// the previous step and forbidding an intervening event of type `no`.
     #[pyo3(signature = (typ, within = None, no = None))]

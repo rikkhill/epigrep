@@ -29,11 +29,12 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
     "Operating System :: OS Independent",
 ]
-dependencies = ["pandas"]
+dependencies = []
 
 [project.optional-dependencies]
-demo = ["streamlit", "altair"]
-test = ["pytest"]
+frame = ["pandas"]
+demo = ["pandas", "streamlit", "altair"]
+test = ["pytest", "pandas"]
 
 [project.urls]
 Source = "https://github.com/rikkhill/epigrep"

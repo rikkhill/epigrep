@@ -39,6 +39,27 @@ jobs:
         run: pip install maturin pytest pandas
       - name: Build wheel
         run: maturin build --release --manifest-path crates/epigrep-py/Cargo.toml --out dist
+      - name: Build sdist
+        run: maturin sdist --manifest-path crates/epigrep-py/Cargo.toml --out dist
+      - name: Inspect package artifacts
+        run: |
+          python - <<'PY'
+          import tarfile
+          import zipfile
+          from pathlib import Path
+
+          dist = Path("dist")
+          wheel = next(dist.glob("epigrep-*.whl"))
+          sdist = next(dist.glob("epigrep-*.tar.gz"))
+
+          with zipfile.ZipFile(wheel) as archive:
+              names = archive.namelist()
+              assert any(name.endswith(".dist-info/licenses/LICENSE") for name in names), names
+
+          with tarfile.open(sdist) as archive:
+              names = archive.getnames()
+              assert any(name.endswith("/LICENSE") for name in names), names
+          PY
       - name: Install wheel
         run: pip install --no-index --find-links dist epigrep
       - name: Pytest

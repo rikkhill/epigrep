@@ -1,0 +1,42 @@
+{
+  "key": "fatal_without_warning",
+  "title": "Fatal error with no prior warning",
+  "description": "Find request traces where a fatal error occurs within a minute of request start without a warning event in between.",
+  "events": [
+    {"partition": "request-a", "ts": 0, "typ": "request_start", "attrs": {"request_id": "req-a"}},
+    {"partition": "request-a", "ts": 20, "typ": "fatal_error", "attrs": {"request_id": "req-a", "code": "OOM"}},
+    {"partition": "request-b", "ts": 0, "typ": "request_start", "attrs": {"request_id": "req-b"}},
+    {"partition": "request-b", "ts": 10, "typ": "warning", "attrs": {"request_id": "req-b", "code": "memory_pressure"}},
+    {"partition": "request-b", "ts": 20, "typ": "fatal_error", "attrs": {"request_id": "req-b", "code": "OOM"}}
+  ],
+  "builder": [
+    {"op": "event", "typ": "request_start"},
+    {"op": "then", "typ": "fatal_error", "within": 60, "no": "warning"},
+    {"op": "build"}
+  ],
+  "pattern_json": {
+    "steps": [
+      {
+        "atom": {"event_type": "request_start", "predicates": [], "reference_predicates": [], "captures": []},
+        "transition_from_previous": null
+      },
+      {
+        "atom": {"event_type": "fatal_error", "predicates": [], "reference_predicates": [], "captures": []},
+        "transition_from_previous": {
+          "max_elapsed": 60,
+          "absence": [
+            {"event_type": "warning", "predicates": [], "reference_predicates": [], "captures": []}
+          ]
+        }
+      }
+    ],
+    "consumption": "FirstSuccessorPerStart"
+  },
+  "expected_matches": [
+    {"partition": "request-a", "indices": [0, 1], "captures": {}}
+  ],
+  "expected_near_misses": [
+    {"partition": "request-b", "indices": [2], "reason": "absence_blocked"}
+  ],
+  "notes": "request-b has a warning before the fatal error, so absence-between blocks it."
+}

@@ -1,0 +1,42 @@
+{
+  "key": "deploy_error_rollback",
+  "title": "Deploy followed by error spike and rollback",
+  "description": "Find service instances where a deploy is followed by an error spike and then a rollback.",
+  "events": [
+    {"partition": "svc-a", "ts": 0, "typ": "deploy", "attrs": {"service": "checkout", "version": "2026.06.17-1"}},
+    {"partition": "svc-a", "ts": 20, "typ": "error_spike", "attrs": {"service": "checkout", "level": "critical"}},
+    {"partition": "svc-a", "ts": 45, "typ": "rollback", "attrs": {"service": "checkout", "version": "2026.06.16-3"}},
+    {"partition": "svc-b", "ts": 0, "typ": "deploy", "attrs": {"service": "billing", "version": "2026.06.17-1"}},
+    {"partition": "svc-b", "ts": 10, "typ": "error_spike", "attrs": {"service": "billing", "level": "critical"}}
+  ],
+  "builder": [
+    {"op": "event", "typ": "deploy"},
+    {"op": "then", "typ": "error_spike", "within": 60},
+    {"op": "then", "typ": "rollback", "within": 60},
+    {"op": "build"}
+  ],
+  "pattern_json": {
+    "steps": [
+      {
+        "atom": {"event_type": "deploy", "predicates": [], "reference_predicates": [], "captures": []},
+        "transition_from_previous": null
+      },
+      {
+        "atom": {"event_type": "error_spike", "predicates": [], "reference_predicates": [], "captures": []},
+        "transition_from_previous": {"max_elapsed": 60, "absence": []}
+      },
+      {
+        "atom": {"event_type": "rollback", "predicates": [], "reference_predicates": [], "captures": []},
+        "transition_from_previous": {"max_elapsed": 60, "absence": []}
+      }
+    ],
+    "consumption": "FirstSuccessorPerStart"
+  },
+  "expected_matches": [
+    {"partition": "svc-a", "indices": [0, 1, 2], "captures": {}}
+  ],
+  "expected_near_misses": [
+    {"partition": "svc-b", "indices": [3, 4], "reason": "no_successor"}
+  ],
+  "notes": "svc-b reaches deploy -> error_spike but has no rollback."
+}

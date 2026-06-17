@@ -249,6 +249,27 @@ def test_pattern_from_json_hand_written_ast():
     assert idx(match(pattern, events)) == [[0, 1]]
 
 
+def test_schema_summarises_event_stream():
+    events = [
+        Event("child-1", 0, "entered_care"),
+        Event("child-1", 5, "safeguarding_flag", {"severity": 4}),
+        Event("child-2", 0, "entered_care"),
+    ]
+    s = epigrep.schema(events)
+    assert s["event_count"] == 3
+    assert s["partitions"] == ["child-1", "child-2"]
+    assert s["partition_count"] == 2
+    assert s["time_range"] == [0, 5]
+    assert s["event_types"]["entered_care"]["count"] == 2
+    assert s["event_types"]["safeguarding_flag"]["attributes"] == {"severity": ["int"]}
+
+
+def test_schema_distinguishes_bool_from_int():
+    events = [Event("p", 0, "A", {"flag": True, "n": 3})]
+    attrs = epigrep.schema(events)["event_types"]["A"]["attributes"]
+    assert attrs == {"flag": ["bool"], "n": ["int"]}
+
+
 def test_pattern_from_json_rejects_invalid():
     with pytest.raises(ValueError):
         epigrep.pattern_from_json("{ not json")

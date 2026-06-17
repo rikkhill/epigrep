@@ -17,6 +17,7 @@ from ._core import (
 from ._core import match_events as _match_events
 from ._core import near_miss_events as _near_miss_events
 from .frame import events_to_frame, matches_to_frame, near_misses_to_frame
+from .schema import schema
 
 
 def match(pattern, events, *, exhaustive=False, oracle=False, assume_sorted=False):
@@ -113,6 +114,7 @@ __all__ = [
     "parse_pattern",
     "pattern_from_json",
     "sort_events",
+    "schema",
     "match",
     "explain",
     "near_miss_summary",

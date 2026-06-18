@@ -2,15 +2,16 @@
 
 **Grep is good at lines. Epigrep is for sequences.**
 
-Epigrep finds temporal patterns in partitioned, timestamped event streams — the
-sort of question that is awkward to express in grep, SQL, or ad-hoc pandas:
+Epigrep finds temporal patterns in partitioned, timestamped event sequences —
+the sort of question that is awkward to express in grep, SQL, or ad-hoc pandas:
 *"a config reload followed by an OOM within two minutes, with no readiness
 success in between, per pod"*. You describe the sequence; Epigrep returns the
 matches, their spans and captured values, and — for the near-misses — an
 explanation of why they did not match.
 
-It is a small Rust core with Python bindings. The matching semantics are
-written down and tested rather than implied by the implementation.
+The matching semantics are written down and tested against a reference matcher,
+not implied by the implementation. Underneath, it is a small Rust core with a
+Python API.
 
 > Status: alpha (0.1.0). Published to PyPI — `pip install epigrep`. The Python
 > API and JSON pattern format are the intended stable surface; the text DSL is
@@ -123,7 +124,7 @@ pip install -r docs/requirements.txt
 mkdocs serve
 ```
 
-## What it does not do (yet)
+## Out of scope for 0.1
 
 Single-machine, in-memory matching over events you have already parsed into the
 `(partition, timestamp, type, attributes)` shape. No streaming or late data, no
@@ -132,14 +133,9 @@ mining, no log-line parsing, no distributed execution. These are deliberate
 
 ## Development
 
-```sh
-cargo test                  # Rust core
-cargo fmt --all --check
-cargo clippy --all-targets
-```
-
-Python bindings and the Streamlit storyboard need a Python environment with
-maturin; the [getting-started guide](docs/getting-started.md) has the full loop.
+Build from a checkout with `cargo test` for the Rust core and
+[maturin](https://www.maturin.rs/) for the Python bindings; the
+[getting-started guide](docs/getting-started.md) has the full development loop.
 
 ## Licence
 

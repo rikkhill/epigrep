@@ -2,17 +2,17 @@
 
 **Grep is good at lines. Epigrep is for sequences.**
 
-Epigrep finds temporal patterns in partitioned, timestamped event streams. Where
-grep matches a line and SQL matches a row, Epigrep matches an ordered *sequence*
-of events that unfolds over time, within one partition, inside a time budget,
-optionally with a clause saying what must *not* happen in between.
+Epigrep finds temporal patterns in partitioned, timestamped event sequences.
+Where grep matches a line and SQL matches a row, Epigrep matches an ordered
+*sequence* of events that unfolds over time, within one partition, inside a time
+budget, optionally with a clause saying what must *not* happen in between.
 
 The same idea works whether your events are parcels or pods. Here it is both
 ways.
 
 ## A parcel that didn't arrive cleanly
 
-Think of a courier's tracking history — a stream of events, grouped by parcel,
+Think of a courier's tracking history — a sequence of events, grouped by parcel,
 in time order:
 
 ```text title="tracking"
@@ -43,10 +43,9 @@ order-by, no self-join, no manual grouping.
 
 ## The same shape in your logs
 
-The use case Epigrep leads with is operational logs — where the awkwardness of
-grep and SQL bites hardest, and the one most people will reach for first. The
-machinery is the same; here the events are structured log lines, grouped by pod
-instead of by parcel:
+Operational logs are the case Epigrep leads with: it is where grep and SQL hurt
+most, and where most people will reach for it first. The machinery is the same;
+here the events are structured log lines, grouped by pod instead of by parcel:
 
 ```text title="app.log"
 09:00:00   api-1   config_reload
@@ -88,12 +87,12 @@ For each start position Epigrep tells you one of two things:
 The explanation is the part that is hard to get from grep, SQL, or pandas: not
 just *that* something did not match, but *why*.
 
-## Design in one breath
+## How it works
 
-- A small **Rust core** does the matching; **Python bindings** are the surface.
 - The **semantics are written down and tested**, not implied by the code. A
   naive reference matcher is the source of truth, and a second, independent
   implementation is checked against it by property tests.
+- A small **Rust core** does the matching; a **Python API** is the surface.
 - Patterns are built with a **Python builder** or a **stable JSON format**; the
   text DSL is experimental.
 
@@ -110,4 +109,4 @@ just *that* something did not match, but *why*.
 !!! note "Status"
     Alpha (0.1.0). Published to PyPI — `pip install epigrep`. The Python API and
     JSON pattern format are the intended stable surface; the text DSL is
-    experimental. MIT licensed.
+    experimental.

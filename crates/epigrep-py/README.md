@@ -6,15 +6,15 @@
 
 **Grep is good at lines. Epigrep is for sequences.**
 
-Epigrep finds temporal patterns in partitioned, timestamped event streams — the
-kind of question that is awkward in grep, SQL, or ad-hoc pandas: *"a config
+Epigrep finds temporal patterns in partitioned, timestamped event sequences —
+the kind of question that is awkward in grep, SQL, or ad-hoc pandas: *"a config
 reload followed by an OOM within two minutes, with no readiness success in
 between, per pod."* You describe the sequence; Epigrep returns the matches,
 their spans and captured values, and — for the near-misses — an explanation of
 why they did not match.
 
-It is a small Rust core with Python bindings and an explicit, tested matching
-contract.
+The matching semantics are explicit and tested against a reference matcher;
+underneath, it is a small Rust core with a Python API.
 
 - **Documentation:** <https://rikkhill.github.io/epigrep/>
 - **Source:** <https://github.com/rikkhill/epigrep>
@@ -34,7 +34,7 @@ Rust toolchain.
 ```python
 from epigrep import Event, Pattern, explain, match
 
-stream = [
+events = [
     Event("api-0", 0,  "config_reload",     {"pod": "api-0"}),
     Event("api-0", 30, "readiness_success", {"pod": "api-0"}),
     Event("api-0", 70, "oom_killed",        {"pod": "api-0"}),
@@ -48,11 +48,11 @@ pattern = (
     .build()
 )
 
-for m in match(pattern, stream):
+for m in match(pattern, events):
     print(m.partition, list(m.indices))   # api-1 [3, 4]
 
 # Why didn't the others match?
-for nm in explain(pattern, stream):
+for nm in explain(pattern, events):
     print(nm.partition, nm.reason)        # api-0 absence_blocked
 ```
 
@@ -71,7 +71,7 @@ For each start position, Epigrep returns either:
   `absence_blocked`, `window_exceeded`, or `no_successor`), with structured
   detail.
 
-`schema(stream)` summarises the event types and attributes present. Pandas
+`schema(events)` summarises the event types and attributes present. Pandas
 dataframe helpers are available when pandas is installed; matching and
 explanation do not require it.
 

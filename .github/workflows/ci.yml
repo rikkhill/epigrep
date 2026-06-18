@@ -6,6 +6,18 @@ on:
   pull_request:
 
 jobs:
+  consistency:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Versions agree across manifests
+        run: python3 scripts/check_version_sync.py
+      - name: LICENSE copies are identical
+        # crates/epigrep-py/LICENSE is load-bearing: license-files = ["LICENSE"]
+        # in pyproject is what makes the sdist pass PyPI's PEP 639 check. Keep it
+        # byte-identical to the repo-root LICENSE.
+        run: diff LICENSE crates/epigrep-py/LICENSE
+
   rust:
     runs-on: ubuntu-latest
     steps:

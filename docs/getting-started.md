@@ -2,11 +2,10 @@
 
 ## Install from PyPI
 
-epigrep is on PyPI. The current release is a pre-release (release candidate), so
-install it with `--pre`:
+epigrep is on PyPI:
 
 ```sh
-pip install --pre epigrep
+pip install epigrep
 ```
 
 Prebuilt wheels cover Linux (x86_64, aarch64), macOS (Apple Silicon), and

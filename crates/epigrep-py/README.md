@@ -22,12 +22,12 @@ contract.
 ## Install
 
 ```sh
-pip install --pre epigrep
+pip install epigrep
 ```
 
-The current release is a release candidate, hence `--pre`. Prebuilt wheels cover
-Linux (x86_64, aarch64), macOS (Apple Silicon), and Windows (x64); other
-platforms build from the source distribution, which needs a Rust toolchain.
+Prebuilt wheels cover Linux (x86_64, aarch64), macOS (Apple Silicon), and
+Windows (x64); other platforms build from the source distribution, which needs a
+Rust toolchain.
 
 ## Quick start
 
@@ -102,5 +102,5 @@ implementation is checked against it by property tests. See the
 
 ## Status
 
-Alpha, published as a release candidate. The Python API and JSON pattern format
-are the intended stable surface; the text DSL is experimental. MIT licensed.
+Alpha (0.1.0). The Python API and JSON pattern format are the intended stable
+surface; the text DSL is experimental. MIT licensed.

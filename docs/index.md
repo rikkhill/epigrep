@@ -108,6 +108,6 @@ just *that* something did not match, but *why*.
 - [Limitations](limitations.md) — the boundaries of the 0.1 release.
 
 !!! note "Status"
-    Alpha. Published to PyPI as a release candidate —
-    `pip install --pre epigrep`. The Python API and JSON pattern format are the
-    intended stable surface; the text DSL is experimental. MIT licensed.
+    Alpha (0.1.0). Published to PyPI — `pip install epigrep`. The Python API and
+    JSON pattern format are the intended stable surface; the text DSL is
+    experimental. MIT licensed.

@@ -12,9 +12,9 @@ explanation of why they did not match.
 It is a small Rust core with Python bindings. The matching semantics are
 written down and tested rather than implied by the implementation.
 
-> Status: alpha. Published to PyPI as a release candidate —
-> `pip install --pre epigrep`. The Python API and JSON pattern format are the
-> intended stable surface; the text DSL is experimental. MIT licensed.
+> Status: alpha (0.1.0). Published to PyPI — `pip install epigrep`. The Python
+> API and JSON pattern format are the intended stable surface; the text DSL is
+> experimental. MIT licensed.
 
 ## When it helps
 
@@ -75,11 +75,10 @@ pattern surface, the matching semantics, and near-miss explanations.
 
 ## Install
 
-epigrep is on PyPI. The current release is a pre-release (release candidate), so
-install it with `--pre`:
+epigrep is on PyPI:
 
 ```sh
-pip install --pre epigrep
+pip install epigrep
 ```
 
 Prebuilt wheels cover Linux (x86_64, aarch64), macOS (Apple Silicon), and

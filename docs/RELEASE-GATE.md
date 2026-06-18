@@ -5,10 +5,11 @@ This is the human-gated checklist for epigrep's 0.1 release. **Nothing in the
 Rikk's explicit authorisation.
 
 The current state was verified by a post-RC release-readiness pass on
-**2026-06-17** against `main` at commit `1e7eacc`. epigrep is **published as a
-release candidate** — `0.1.0rc2` is live on PyPI and TestPyPI — and the only
-remaining gate is the decision to promote it to a final `0.1.0`. Re-run the
-verification block before acting on the gated step.
+**2026-06-17**. `0.1.0rc2` is the latest version live on PyPI and TestPyPI; the
+repo is now **staged for the final `0.1.0`** — versions bumped and the RC /
+`--pre` prose swept to plain install instructions. The one remaining gate is the
+decision to **tag and publish `v0.1.0`**. Re-run the verification block before
+acting on the gated step.
 
 ---
 
@@ -35,9 +36,10 @@ verification block before acting on the gated step.
   rescued by `timeout-minutes` / `continue-on-error`, so it silently blocks the
   publish job). Intel Macs build from the sdist (needs a Rust toolchain); a wheel
   would need cross-compilation, not a hosted Intel runner.
-- **Versioning** — release-candidate track. Current published version is
-  **`0.1.0rc2`** (`crates/epigrep-py/pyproject.toml`). `pip` does not install a
-  pre-release by default, so `--pre` is required to get it.
+- **Versioning** — the repo is staged at **`0.1.0`**
+  (`crates/epigrep-py/pyproject.toml` and `Cargo.toml`). The latest version
+  published to PyPI/TestPyPI is still `0.1.0rc2` until `v0.1.0` is tagged and
+  published.
 
 ---
 
@@ -140,21 +142,22 @@ publishes via trusted publishing on a `v*` tag push (PyPI) or manual dispatch
 
 ## GATED — remaining step
 
-### G5. Promote rc2 → final 0.1.0 (Rikk — irreversible, outward-facing)
+### G5. Tag and publish the final 0.1.0 (Rikk — irreversible, outward-facing)
 
 The release candidate is functionally and packaging-sound and is sufficient to
-promote (see `projects:epigrep:release-readiness-2026-06-17` in OB). Promotion is
-the one remaining human-gated step. The recommended sequence:
+promote (see `projects:epigrep:release-readiness-2026-06-17` in OB). The version
+bump (`0.1.0rc2` → `0.1.0`) and the RC / `--pre` prose sweep are **already done
+in the repo** — README, the PyPI README, and
+`docs/{index,getting-started,limitations}.md` now say plain `pip install
+epigrep`. The one remaining human-gated step is to tag and publish:
 
 ```sh
-# 1. Bump versions and sweep RC / --pre prose to plain install instructions,
-#    then tag — this is what /publish-pypi 0.1.0 automates:
-#      pyproject 0.1.0rc2 -> 0.1.0 ; Cargo 0.1.0-rc2 -> 0.1.0
-#      README, PyPI README, docs/{index,getting-started,limitations}.md:
-#        "release candidate" / "pip install --pre epigrep" -> "pip install epigrep"
-#      twine check ; TestPyPI rehearsal ; confirm
+# Optional: re-run the verification block above, then a TestPyPI rehearsal:
+gh workflow run release.yml -f index=testpypi
+
+# Publish: the tag push triggers the wheel-matrix build + PyPI publish (OIDC).
 git tag -a v0.1.0 -m "epigrep 0.1.0"
-git push origin v0.1.0          # tag push triggers build + PyPI publish (OIDC)
+git push origin v0.1.0
 ```
 
 Then cut a **GitHub Release** for `v0.1.0` with notes (the Releases page is
@@ -173,5 +176,5 @@ currently empty).
 
 ## Remaining human gates (summary)
 
-1. **G5** — decide to promote `0.1.0rc2` → final `0.1.0`, then tag `v0.1.0` to
-   publish and cut the GitHub Release.
+1. **G5** — repo is staged at `0.1.0`; tag `v0.1.0` to publish and cut the
+   GitHub Release.

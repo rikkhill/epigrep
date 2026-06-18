@@ -967,3 +967,26 @@ fn pattern_from_json_rejects_structurally_invalid_patterns() {
     let json = pattern_to_json(&bad);
     assert!(pattern_from_json(&json).is_err());
 }
+
+#[test]
+fn validate_pattern_accepts_well_formed_patterns() {
+    assert!(validate_pattern(&Pattern::sequence(vec![Step::first(atom("A"))])).is_ok());
+    assert!(validate_pattern(&sequence("A", "B", Transition::any())).is_ok());
+}
+
+#[test]
+fn validate_pattern_rejects_an_empty_pattern() {
+    assert!(validate_pattern(&Pattern::sequence(vec![])).is_err());
+}
+
+#[test]
+fn validate_pattern_rejects_a_first_step_with_a_transition() {
+    let bad = Pattern::sequence(vec![Step::then(atom("A"), Transition::any())]);
+    assert!(validate_pattern(&bad).is_err());
+}
+
+#[test]
+fn validate_pattern_rejects_a_later_step_without_a_transition() {
+    let bad = Pattern::sequence(vec![Step::first(atom("A")), Step::first(atom("B"))]);
+    assert!(validate_pattern(&bad).is_err());
+}

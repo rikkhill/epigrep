@@ -24,22 +24,6 @@ pub fn pattern_to_json_pretty(pattern: &Pattern) -> String {
 /// the result is always safe to pass to the matcher.
 pub fn pattern_from_json(json: &str) -> Result<Pattern, String> {
     let pattern: Pattern = serde_json::from_str(json).map_err(|error| error.to_string())?;
-    validate_structure(&pattern)?;
+    crate::matcher::validate_pattern(&pattern)?;
     Ok(pattern)
-}
-
-fn validate_structure(pattern: &Pattern) -> Result<(), String> {
-    if pattern.steps.is_empty() {
-        return Err("pattern must contain at least one step".to_owned());
-    }
-    if pattern.steps[0].transition_from_previous.is_some() {
-        return Err("the first pattern step cannot have a transition".to_owned());
-    }
-    if pattern.steps[1..]
-        .iter()
-        .any(|step| step.transition_from_previous.is_none())
-    {
-        return Err("every step after the first must have a transition".to_owned());
-    }
-    Ok(())
 }

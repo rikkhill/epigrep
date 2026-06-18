@@ -44,7 +44,7 @@ struct Thread {
 
 impl CompiledPattern {
     pub fn compile(pattern: &Pattern) -> Self {
-        validate_pattern(pattern);
+        validate_pattern(pattern).expect("compile requires a structurally valid pattern");
 
         let steps = pattern
             .steps
@@ -206,7 +206,7 @@ fn build_match(events: &[Event], participating: Vec<EventIndex>, bindings: Bindi
 /// obviousness, not speed, and is the source of truth that [`CompiledPattern`]
 /// is checked against.
 pub fn oracle_matches(events: &[Event], pattern: &Pattern) -> Vec<Match> {
-    validate_pattern(pattern);
+    validate_pattern(pattern).expect("oracle_matches requires a structurally valid pattern");
     debug_assert!(
         is_sorted_by_partition_time_index(events),
         "matcher input must be grouped by partition and sorted by (timestamp, index)"
@@ -246,21 +246,28 @@ pub fn is_sorted_by_partition_time_index(events: &[Event]) -> bool {
     })
 }
 
-pub(crate) fn validate_pattern(pattern: &Pattern) {
-    assert!(
-        !pattern.steps.is_empty(),
-        "patterns must contain at least one step"
-    );
-    assert!(
-        pattern.steps[0].transition_from_previous.is_none(),
-        "the first pattern step cannot have a transition"
-    );
-    assert!(
-        pattern.steps[1..]
-            .iter()
-            .all(|step| step.transition_from_previous.is_some()),
-        "every step after the first must have a transition"
-    );
+/// Check a pattern's structural invariants: at least one step, a first step with
+/// no incoming transition, and every later step carrying one.
+///
+/// This is the fallible validation path on the library surface. The matchers
+/// ([`CompiledPattern::compile`], [`compiled_matches`], [`oracle_matches`])
+/// assume a valid pattern and will panic on an invalid one, so a Rust caller
+/// constructing a [`Pattern`] by hand should call this first. Patterns produced
+/// by the Python builder, the text parser, or the JSON loader are already valid.
+pub fn validate_pattern(pattern: &Pattern) -> Result<(), String> {
+    if pattern.steps.is_empty() {
+        return Err("pattern must contain at least one step".to_owned());
+    }
+    if pattern.steps[0].transition_from_previous.is_some() {
+        return Err("the first pattern step cannot have a transition".to_owned());
+    }
+    if pattern.steps[1..]
+        .iter()
+        .any(|step| step.transition_from_previous.is_none())
+    {
+        return Err("every step after the first must have a transition".to_owned());
+    }
+    Ok(())
 }
 
 fn match_partition(

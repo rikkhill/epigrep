@@ -157,7 +157,7 @@ impl Reach {
 
 /// Compute near-misses for `pattern` over `events`.
 pub fn near_misses(events: &[Event], pattern: &Pattern) -> Vec<NearMiss> {
-    validate_pattern(pattern);
+    validate_pattern(pattern).expect("near_misses requires a structurally valid pattern");
     debug_assert!(
         crate::is_sorted_by_partition_time_index(events),
         "near_misses input must be grouped by partition and sorted by (timestamp, index)"

@@ -8,6 +8,7 @@ pub use explain::{NearMiss, NearMissDetail, NearMissReason, PredicateFailure, ne
 pub use json::{pattern_from_json, pattern_to_json, pattern_to_json_pretty};
 pub use matcher::{
     CompiledPattern, compiled_matches, is_sorted_by_partition_time_index, oracle_matches,
+    validate_pattern,
 };
 pub use model::{
     Atom, Bindings, Capture, ComparisonOperator, Event, EventIndex, Match, MatchConsumption,

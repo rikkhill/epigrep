@@ -11,6 +11,11 @@ The supported, stable construction surfaces are the :class:`PatternBuilder`
 :func:`explain`, and :func:`schema` are the stable execution/inspection
 entrypoints.
 
+:func:`eventise` / :func:`events_from_frame` ingest record/dataframe data into
+the sorted :class:`Event` list the matcher expects; they are the shared
+ingestion primitive behind the dataframe helpers, the ``epigrep`` CLI, and the
+dataset loaders in :mod:`epigrep.datasets`.
+
 :func:`parse_pattern` (the text DSL) is **provisional**: importable and
 documented, but outside the 0.1 stability guarantee and may change. The pandas
 helpers (``*_to_frame``) require pandas and are convenience-tier.
@@ -35,6 +40,7 @@ from ._core import (
 )
 from ._core import match_events as _match_events
 from ._core import near_miss_events as _near_miss_events
+from .eventise import eventise, events_from_frame
 from .schema import schema
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -186,6 +192,8 @@ __all__ = [
     "match",
     "explain",
     "near_miss_summary",
+    "eventise",
+    "events_from_frame",
     "events_to_frame",
     "matches_to_frame",
     "near_misses_to_frame",

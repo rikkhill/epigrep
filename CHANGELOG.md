@@ -8,6 +8,22 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Eventisation primitive (`eventise`) turning record/tabular data into the sorted
+  `Event` list the matcher expects, with `partition` / `ts` / `typ` given as keys
+  or callables and attributes selected explicitly or by remainder. Numpy/pandas
+  scalars are coerced to native values and null/NaN attributes dropped.
+- `events_from_frame`: build events from a pandas or polars `DataFrame` or a
+  pyarrow `Table` (detected by duck-typing, so no dataframe library is a hard
+  dependency). The inverse of `events_to_frame`; documents the pre-sorted +
+  `assume_sorted=True` contract for aligning `Match.indices` with frame rows.
+- `epigrep` command-line interface (`epigrep` console script / `python -m
+  epigrep`) with `match`, `explain`, and `schema` subcommands over JSONL (file or
+  stdin), JSON and table output, and grep-style exit codes (`0` match, `1` no
+  match, `2` error).
+- `epigrep.datasets`: an SPMF sequence-database loader (`load_spmf` /
+  `load_spmf_file`) plus a bundled four-sequence sample and an
+  `examples/datasets/spmf-sample.txt` fixture, with a ground-truth
+  sequential-pattern recovery test.
 - Type information: the package now ships `py.typed` and a `_core.pyi` stub for
   the compiled extension, and the pure-Python wrappers carry type hints. Type
   checkers see the real signatures instead of `Any`.

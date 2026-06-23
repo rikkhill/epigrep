@@ -71,17 +71,63 @@ FIXTURES = []
 def fixture(name, clause, rationale, events, pattern, expected_matches,
             expected_near_misses, consumption="FirstSuccessorPerStart"):
     ast = with_consumption(pattern, consumption)
+    fixture_raw(name, clause, rationale, events, ast, expected_matches,
+                expected_near_misses)
+
+
+def fixture_raw(name, clause, rationale, events, pattern_ast, expected_matches,
+                expected_near_misses):
+    """Register a fixture from a hand-authored JSON AST.
+
+    Used for patterns the stable Python builder cannot express — notably absence
+    atoms carrying predicates or reference predicates.
+    """
     FIXTURES.append(
         {
             "name": name,
             "semantics_clause": clause,
             "rationale": rationale,
             "events": events,
-            "pattern_ast": ast,
+            "pattern_ast": pattern_ast,
             "expected_matches": expected_matches,
             "expected_near_misses": expected_near_misses,
         }
     )
+
+
+# --- Helpers for hand-authored ASTs (the builder cannot reach absence guards) ---
+
+def atom(event_type, predicates=None, references=None, captures=None):
+    return {
+        "event_type": event_type,
+        "predicates": predicates or [],
+        "reference_predicates": references or [],
+        "captures": captures or [],
+    }
+
+
+def predicate(attribute, operator, value):
+    return {"attribute": attribute, "operator": operator, "value": value}
+
+
+def reference(attribute, operator, binding):
+    return {"attribute": attribute, "operator": operator, "binding": binding}
+
+
+def capture(name, attribute):
+    return {"name": name, "attribute": attribute}
+
+
+def transition(max_elapsed=None, absence=None):
+    return {"max_elapsed": max_elapsed, "absence": absence or []}
+
+
+def step(atom_, transition_=None):
+    return {"atom": atom_, "transition_from_previous": transition_}
+
+
+def raw_ast(steps, consumption="FirstSuccessorPerStart"):
+    return {"steps": steps, "consumption": consumption}
 
 
 A_then_B = Pattern.event("A").then("B").build()
@@ -307,6 +353,72 @@ fixture(
     [{"partition": "p", "indices": [0, 3, 4], "captures": {}}],
     [],
     consumption="ExhaustivePerStart",
+)
+
+# Absence atoms carrying predicates / references — not expressible via the builder,
+# so authored as raw ASTs.
+
+fixture_raw(
+    "absence-with-predicate",
+    "An absent atom's own predicate decides whether it blocks: only a matching "
+    "absent event blocks.",
+    "'A -> B with no C[sev >= 3] between'. In partition a the intervening C has "
+    "sev=1, fails the absent atom's predicate, and does NOT block, so A->B "
+    "matches. In partition b the C has sev=5, matches, and blocks.",
+    [
+        {"partition": "a", "ts": 0, "typ": "A"},
+        {"partition": "a", "ts": 1, "typ": "C", "attrs": {"sev": 1}},
+        {"partition": "a", "ts": 2, "typ": "B"},
+        {"partition": "b", "ts": 0, "typ": "A"},
+        {"partition": "b", "ts": 1, "typ": "C", "attrs": {"sev": 5}},
+        {"partition": "b", "ts": 2, "typ": "B"},
+    ],
+    raw_ast(
+        [
+            step(atom("A")),
+            step(
+                atom("B"),
+                transition(
+                    absence=[atom("C", predicates=[predicate("sev", "Gte", {"Int": 3})])]
+                ),
+            ),
+        ]
+    ),
+    [{"partition": "a", "indices": [0, 2], "captures": {}}],
+    [{"partition": "b", "indices": [3], "reason": "absence_blocked"}],
+)
+
+fixture_raw(
+    "absence-with-captured-reference",
+    "An absence guard can reference a captured binding: only an absent event that "
+    "matches the binding blocks.",
+    "A captures user_id as $u; 'A -> B with no warning[user_id == $u] between'. In "
+    "partition a the warning has a different user (u2) and does not block, so A->B "
+    "matches and captures u=u1. In partition b the warning shares the captured "
+    "user (u1) and blocks.",
+    [
+        {"partition": "a", "ts": 0, "typ": "A", "attrs": {"user_id": "u1"}},
+        {"partition": "a", "ts": 1, "typ": "warning", "attrs": {"user_id": "u2"}},
+        {"partition": "a", "ts": 2, "typ": "B"},
+        {"partition": "b", "ts": 0, "typ": "A", "attrs": {"user_id": "u1"}},
+        {"partition": "b", "ts": 1, "typ": "warning", "attrs": {"user_id": "u1"}},
+        {"partition": "b", "ts": 2, "typ": "B"},
+    ],
+    raw_ast(
+        [
+            step(atom("A", captures=[capture("u", "user_id")])),
+            step(
+                atom("B"),
+                transition(
+                    absence=[
+                        atom("warning", references=[reference("user_id", "Eq", "u")])
+                    ]
+                ),
+            ),
+        ]
+    ),
+    [{"partition": "a", "indices": [0, 2], "captures": {"u": "u1"}}],
+    [{"partition": "b", "indices": [3], "reason": "absence_blocked"}],
 )
 
 

@@ -35,11 +35,13 @@ already in that order). `reason` is one of `predicate_failed`, `absence_blocked`
 
 ## Regenerating
 
-Fixtures are produced by `_generate.py`, which builds each pattern through the
-stable Python builder (so the emitted AST is always valid) and — crucially —
-**asserts the live matcher agrees with the hand-written expectation** before
-writing the file. A disagreement means the authored expectation is wrong or there
-is a real matcher bug; investigate rather than overwrite.
+Fixtures are produced by `_generate.py`, which builds most patterns through the
+stable Python builder (so the emitted AST is always valid) — or, for patterns the
+builder cannot express such as absence atoms carrying predicates/references, from
+a hand-authored AST. Either way it **asserts the live matcher agrees with the
+hand-written expectation** before writing the file. A disagreement means the
+authored expectation is wrong or there is a real matcher bug; investigate rather
+than overwrite.
 
 ```sh
 python tests/semantic-fixtures/_generate.py

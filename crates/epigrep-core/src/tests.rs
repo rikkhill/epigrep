@@ -915,6 +915,150 @@ mod property_tests {
             );
         }
     }
+
+    // ---- Absence monotonicity (pass 3) ----
+    //
+    // "Z" is a dedicated absence-blocker type that appears in no step, so removing
+    // Z events can only unblock paths — never drop a participant. Under
+    // ExhaustivePerStart (no commitment effects) that makes match presence
+    // monotone: every match with the blockers present survives their removal.
+
+    fn absence_monotonic_pattern() -> impl Strategy<Value = Pattern> {
+        (prop::option::of(0_i64..=6), any::<bool>()).prop_map(|(window, guarded)| {
+            let mut absent = Atom::event_type("Z");
+            if guarded {
+                absent =
+                    absent.with_predicate(Predicate::new("score", ComparisonOperator::Gte, 2_i64));
+            }
+            let mut transition = Transition::any().with_absence(absent);
+            if let Some(window) = window {
+                transition = transition.within(window);
+            }
+            Pattern::sequence(vec![
+                Step::first(atom("A")),
+                Step::then(atom("B"), transition),
+            ])
+            .with_consumption(MatchConsumption::ExhaustivePerStart)
+        })
+    }
+
+    fn absence_stream() -> impl Strategy<Value = Vec<Event>> {
+        prop::collection::vec(
+            (
+                prop_oneof![Just("A"), Just("B"), Just("Z")],
+                0_i64..=8,
+                prop::option::of(0_i64..=4),
+            ),
+            0..=14,
+        )
+        .prop_map(|specs| {
+            let mut events: Vec<Event> = specs
+                .into_iter()
+                .map(|(event_type, timestamp, score)| {
+                    let mut event = Event::new("p", timestamp, event_type);
+                    if let Some(score) = score {
+                        event = event.with_attr("score", score.into());
+                    }
+                    event
+                })
+                .collect();
+            events.sort_by_key(|event| event.timestamp);
+            events
+        })
+    }
+
+    // ---- Untrusted-input fuzzing of the provisional parser and JSON surface ----
+
+    fn dsl_token() -> impl Strategy<Value = &'static str> {
+        prop_oneof![
+            Just("A"),
+            Just("B"),
+            Just("C"),
+            Just("->"),
+            Just("-["),
+            Just("]->"),
+            Just("["),
+            Just("]"),
+            Just("<="),
+            Just(">="),
+            Just("=="),
+            Just("!="),
+            Just("no"),
+            Just("$"),
+            Just("u"),
+            Just("score"),
+            Just("5"),
+            Just(","),
+            Just("&&"),
+            Just("as"),
+        ]
+    }
+
+    fn dsl_soup() -> impl Strategy<Value = String> {
+        prop::collection::vec(dsl_token(), 0..=24).prop_map(|tokens| tokens.join(" "))
+    }
+
+    proptest! {
+        /// Removing absence-blocker events can only add matches, never remove one
+        /// (under exhaustive consumption).
+        #[test]
+        fn removing_absence_blockers_only_adds_matches(
+            events in absence_stream(),
+            pattern in absence_monotonic_pattern(),
+        ) {
+            let full = with_eids(events);
+            let reduced: Vec<Event> =
+                full.iter().filter(|event| event.event_type != "Z").cloned().collect();
+
+            let full_set: std::collections::BTreeSet<_> =
+                signatures(&full, &pattern).into_iter().collect();
+            let reduced_set: std::collections::BTreeSet<_> =
+                signatures(&reduced, &pattern).into_iter().collect();
+
+            prop_assert!(
+                full_set.is_subset(&reduced_set),
+                "removing absence-blocker (Z) events dropped a match"
+            );
+        }
+
+        /// The provisional text parser never panics on arbitrary input.
+        #[test]
+        fn parse_pattern_never_panics(input in ".{0,48}") {
+            let _ = parse_pattern(&input);
+        }
+
+        /// On structured DSL-shaped soup the parser still never panics, and any
+        /// pattern it accepts is structurally valid, round-trips through the JSON
+        /// AST, and is safe to match (compiled agrees with the oracle).
+        #[test]
+        fn parsed_patterns_are_valid_and_safe(input in dsl_soup()) {
+            if let Ok(pattern) = parse_pattern(&input) {
+                prop_assert!(validate_pattern(&pattern).is_ok());
+
+                let reparsed = pattern_from_json(&pattern_to_json(&pattern))
+                    .expect("a parsed pattern round-trips through JSON");
+                prop_assert_eq!(&reparsed, &pattern);
+
+                let probe = vec![
+                    Event::new("p", 0, "A")
+                        .with_attr("score", Value::Int(3))
+                        .with_attr("user_id", "u1".into()),
+                    Event::new("p", 1, "B").with_attr("user_id", "u1".into()),
+                    Event::new("p", 2, "C"),
+                ];
+                prop_assert_eq!(
+                    compiled_matches(&probe, &pattern),
+                    oracle_matches(&probe, &pattern)
+                );
+            }
+        }
+
+        /// JSON-AST loading never panics on arbitrary input — only Ok or Err.
+        #[test]
+        fn pattern_from_json_never_panics(input in ".{0,48}") {
+            let _ = pattern_from_json(&input);
+        }
+    }
 }
 
 #[test]

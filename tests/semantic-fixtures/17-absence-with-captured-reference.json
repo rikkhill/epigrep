@@ -1,0 +1,114 @@
+{
+  "name": "absence-with-captured-reference",
+  "semantics_clause": "An absence guard can reference a captured binding: only an absent event that matches the binding blocks.",
+  "rationale": "A captures user_id as $u; 'A -> B with no warning[user_id == $u] between'. In partition a the warning has a different user (u2) and does not block, so A->B matches and captures u=u1. In partition b the warning shares the captured user (u1) and blocks.",
+  "events": [
+    {
+      "partition": "a",
+      "ts": 0,
+      "typ": "A",
+      "attrs": {
+        "user_id": "u1"
+      }
+    },
+    {
+      "partition": "a",
+      "ts": 1,
+      "typ": "warning",
+      "attrs": {
+        "user_id": "u2"
+      }
+    },
+    {
+      "partition": "a",
+      "ts": 2,
+      "typ": "B"
+    },
+    {
+      "partition": "b",
+      "ts": 0,
+      "typ": "A",
+      "attrs": {
+        "user_id": "u1"
+      }
+    },
+    {
+      "partition": "b",
+      "ts": 1,
+      "typ": "warning",
+      "attrs": {
+        "user_id": "u1"
+      }
+    },
+    {
+      "partition": "b",
+      "ts": 2,
+      "typ": "B"
+    }
+  ],
+  "pattern_json": {
+    "steps": [
+      {
+        "atom": {
+          "event_type": "A",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": [
+            {
+              "name": "u",
+              "attribute": "user_id"
+            }
+          ]
+        },
+        "transition_from_previous": null
+      },
+      {
+        "atom": {
+          "event_type": "B",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": {
+          "max_elapsed": null,
+          "absence": [
+            {
+              "event_type": "warning",
+              "predicates": [],
+              "reference_predicates": [
+                {
+                  "attribute": "user_id",
+                  "operator": "Eq",
+                  "binding": "u"
+                }
+              ],
+              "captures": []
+            }
+          ]
+        }
+      }
+    ],
+    "consumption": "FirstSuccessorPerStart"
+  },
+  "expected_matches": [
+    {
+      "partition": "a",
+      "indices": [
+        0,
+        2
+      ],
+      "captures": {
+        "u": "u1"
+      }
+    }
+  ],
+  "expected_near_misses": [
+    {
+      "partition": "b",
+      "indices": [
+        3
+      ],
+      "reason": "absence_blocked"
+    }
+  ]
+}

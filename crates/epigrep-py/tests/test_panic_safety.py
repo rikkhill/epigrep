@@ -74,6 +74,43 @@ def test_parse_pattern_rejects_bad_syntax(text):
         parse_pattern(text)
 
 
+# Adversarial untrusted input. The contract is "never a panic": each call must
+# either return or raise a normal Python exception. A pyo3 panic surfaces as
+# pyo3_runtime.PanicException, which subclasses BaseException (not Exception), so
+# it escapes ``except Exception`` and fails the test loudly — which is the point.
+ADVERSARIAL = [
+    pytest.param("\x00\x00\x00", id="null-bytes"),
+    pytest.param("A" * 10000, id="very-long-type"),
+    pytest.param("[" * 2000, id="deep-open-brackets"),
+    pytest.param("A -[<=" + "9" * 400 + "]-> B", id="huge-number"),
+    pytest.param("A -[<=-5]-> B", id="negative-window"),
+    pytest.param("Â -> 🦀 -[no ✨]-> ☃", id="unicode-soup"),
+    pytest.param("A[score >= ]-> B", id="dangling-operator"),
+    pytest.param("A $ $ $ -> B", id="stray-references"),
+    pytest.param("\t\n\r\f\v", id="whitespace-controls"),
+    pytest.param('{"steps": [' * 500 + "]" * 500, id="deeply-nested-json"),
+    pytest.param("A -[<=1.5e400]-> B", id="overflow-float-window"),
+]
+
+
+def _must_not_panic(call, argument):
+    """Call must return or raise a normal Exception, never let a panic through."""
+    try:
+        call(argument)
+    except Exception:
+        pass  # a clean Python exception is an acceptable outcome
+
+
+@pytest.mark.parametrize("text", ADVERSARIAL)
+def test_parse_pattern_never_panics_on_adversarial_input(text):
+    _must_not_panic(parse_pattern, text)
+
+
+@pytest.mark.parametrize("text", ADVERSARIAL)
+def test_pattern_from_json_never_panics_on_adversarial_input(text):
+    _must_not_panic(epigrep.pattern_from_json, text)
+
+
 def test_event_rejects_unsupported_attribute_value_types():
     # Attribute values must be str/int/float/bool/None; a list is not coercible.
     with pytest.raises(TypeError):

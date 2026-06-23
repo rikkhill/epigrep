@@ -1,0 +1,103 @@
+{
+  "name": "absence-with-predicate",
+  "semantics_clause": "An absent atom's own predicate decides whether it blocks: only a matching absent event blocks.",
+  "rationale": "'A -> B with no C[sev >= 3] between'. In partition a the intervening C has sev=1, fails the absent atom's predicate, and does NOT block, so A->B matches. In partition b the C has sev=5, matches, and blocks.",
+  "events": [
+    {
+      "partition": "a",
+      "ts": 0,
+      "typ": "A"
+    },
+    {
+      "partition": "a",
+      "ts": 1,
+      "typ": "C",
+      "attrs": {
+        "sev": 1
+      }
+    },
+    {
+      "partition": "a",
+      "ts": 2,
+      "typ": "B"
+    },
+    {
+      "partition": "b",
+      "ts": 0,
+      "typ": "A"
+    },
+    {
+      "partition": "b",
+      "ts": 1,
+      "typ": "C",
+      "attrs": {
+        "sev": 5
+      }
+    },
+    {
+      "partition": "b",
+      "ts": 2,
+      "typ": "B"
+    }
+  ],
+  "pattern_json": {
+    "steps": [
+      {
+        "atom": {
+          "event_type": "A",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": null
+      },
+      {
+        "atom": {
+          "event_type": "B",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": {
+          "max_elapsed": null,
+          "absence": [
+            {
+              "event_type": "C",
+              "predicates": [
+                {
+                  "attribute": "sev",
+                  "operator": "Gte",
+                  "value": {
+                    "Int": 3
+                  }
+                }
+              ],
+              "reference_predicates": [],
+              "captures": []
+            }
+          ]
+        }
+      }
+    ],
+    "consumption": "FirstSuccessorPerStart"
+  },
+  "expected_matches": [
+    {
+      "partition": "a",
+      "indices": [
+        0,
+        2
+      ],
+      "captures": {}
+    }
+  ],
+  "expected_near_misses": [
+    {
+      "partition": "b",
+      "indices": [
+        3
+      ],
+      "reason": "absence_blocked"
+    }
+  ]
+}

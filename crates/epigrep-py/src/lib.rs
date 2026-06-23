@@ -648,6 +648,10 @@ fn match_events(
     }
 
     let mut pattern = coerce_pattern(pattern)?;
+    // Validate at the boundary so a structurally invalid pattern (however it was
+    // obtained) surfaces as a Python ValueError rather than tripping the matcher's
+    // internal `validate_pattern(...).expect(...)` and panicking across FFI.
+    core::validate_pattern(&pattern).map_err(PyValueError::new_err)?;
     if exhaustive {
         pattern = pattern.with_consumption(core::MatchConsumption::ExhaustivePerStart);
     }
@@ -677,6 +681,9 @@ fn near_miss_events(pattern: &Bound<'_, PyAny>, events: Vec<PyEvent>) -> PyResul
     }
 
     let pattern = coerce_pattern(pattern)?;
+    // Same boundary validation as `match_events`: keep malformed patterns from
+    // reaching the explainer's internal `expect` and panicking across FFI.
+    core::validate_pattern(&pattern).map_err(PyValueError::new_err)?;
     Ok(core::near_misses(&core_events, &pattern)
         .iter()
         .map(|value| PyNearMiss::from_core(value, &core_events))

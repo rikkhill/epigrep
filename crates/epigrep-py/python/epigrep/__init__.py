@@ -2,7 +2,26 @@
 
 The Rust oracle and compiled matchers remain the semantic source of truth; this
 package is a thin wrapper plus optional pandas helpers and demo data.
+
+Public API stability
+--------------------
+The supported, stable construction surfaces are the :class:`PatternBuilder`
+(reached via ``Pattern.event(...)``) and the JSON pattern AST
+(:func:`pattern_from_json` / :meth:`Pattern.to_json`). :func:`match`,
+:func:`explain`, and :func:`schema` are the stable execution/inspection
+entrypoints.
+
+:func:`parse_pattern` (the text DSL) is **provisional**: importable and
+documented, but outside the 0.1 stability guarantee and may change. The pandas
+helpers (``*_to_frame``) require pandas and are convenience-tier.
+
+Everything exported here is listed in :data:`__all__`; names not listed (e.g.
+the underscored low-level matchers) are internal.
 """
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Iterable, List, Union
 
 from ._core import (
     Event,
@@ -18,8 +37,14 @@ from ._core import match_events as _match_events
 from ._core import near_miss_events as _near_miss_events
 from .schema import schema
 
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    import pandas as pd
 
-def events_to_frame(events):
+# A pattern accepted by the execution entrypoints.
+PatternLike = Union[Pattern, PatternBuilder]
+
+
+def events_to_frame(events: Iterable[Event]) -> "pd.DataFrame":
     """Return a pandas DataFrame for events.
 
     Requires pandas; install the ``frame`` or ``test`` extra, or install pandas
@@ -30,21 +55,28 @@ def events_to_frame(events):
     return _events_to_frame(events)
 
 
-def matches_to_frame(matches):
+def matches_to_frame(matches: Iterable[Match]) -> "pd.DataFrame":
     """Return a pandas DataFrame for matches."""
     from .frame import matches_to_frame as _matches_to_frame
 
     return _matches_to_frame(matches)
 
 
-def near_misses_to_frame(near_misses):
+def near_misses_to_frame(near_misses: Iterable[NearMiss]) -> "pd.DataFrame":
     """Return a pandas DataFrame for near-misses."""
     from .frame import near_misses_to_frame as _near_misses_to_frame
 
     return _near_misses_to_frame(near_misses)
 
 
-def match(pattern, events, *, exhaustive=False, oracle=False, assume_sorted=False):
+def match(
+    pattern: PatternLike,
+    events: Iterable[Event],
+    *,
+    exhaustive: bool = False,
+    oracle: bool = False,
+    assume_sorted: bool = False,
+) -> List[Match]:
     """Run ``pattern`` over ``events`` and return a list of :class:`Match`.
 
     Parameters
@@ -70,7 +102,12 @@ def match(pattern, events, *, exhaustive=False, oracle=False, assume_sorted=Fals
     return _match_events(pattern, events, exhaustive, oracle)
 
 
-def explain(pattern, events, *, assume_sorted=False):
+def explain(
+    pattern: PatternLike,
+    events: Iterable[Event],
+    *,
+    assume_sorted: bool = False,
+) -> List[NearMiss]:
     """Return near-misses: starts that did not match, each with its deepest
     partial path and the reason it could not continue.
 
@@ -83,7 +120,7 @@ def explain(pattern, events, *, assume_sorted=False):
     return _near_miss_events(pattern, events)
 
 
-def near_miss_summary(near_miss) -> str:
+def near_miss_summary(near_miss: NearMiss) -> str:
     """A short human-readable explanation of a near-miss, from its detail."""
     detail = near_miss.detail
     kind = detail["kind"]
@@ -141,6 +178,7 @@ __all__ = [
     "NearMiss",
     "Pattern",
     "PatternBuilder",
+    "PatternLike",
     "parse_pattern",
     "pattern_from_json",
     "sort_events",

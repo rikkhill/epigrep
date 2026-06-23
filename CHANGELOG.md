@@ -6,6 +6,29 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Type information: the package now ships `py.typed` and a `_core.pyi` stub for
+  the compiled extension, and the pure-Python wrappers carry type hints. Type
+  checkers see the real signatures instead of `Any`.
+- Panic-safety tests proving the public Python surface (constructors, JSON AST
+  loading, and the text parser) rejects malformed input with `ValueError` /
+  `TypeError` rather than letting it reach an internal Rust panic.
+
+### Changed
+
+- The matchers' entrypoints (`match` / `explain`) now validate a pattern's
+  structure at the Python boundary and raise `ValueError`, so a malformed
+  pattern can no longer trip the core's internal `validate_pattern(...).expect`
+  and panic across FFI.
+- `__all__` documents the public API; the stable surfaces (builder, JSON AST,
+  `match` / `explain` / `schema`) are distinguished from the provisional text
+  DSL (`parse_pattern`) in the package docstring.
+- The version-sync guard (`scripts/check_version_sync.py`) now also checks the
+  resolved `epigrep-py` version in `Cargo.lock`, not just the two manifests.
+- `docs/RELEASE-GATE.md` is now a durable next-release runbook rather than a
+  one-off pre-1.0 gate.
+
 ## [0.1.0] — 2026-06-18
 
 First stable release: a small Rust core with a Python API for matching ordered

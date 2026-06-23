@@ -48,10 +48,16 @@ share a timestamp are still strictly ordered for the purposes of "between" and
 
 ## Indices in results
 
-A match or near-miss reports **indices into that event's partition**, after
-sorting. So `[3, 4]` means the fourth and fifth events of that partition (in
-`(timestamp, input order)`) are the participating events. This is also how match
-identity works: a match is its partition plus its participating indices.
+A match or near-miss reports **indices into the sorted event stream** — all
+partitions grouped in first-seen order, each sorted by `(timestamp, input
+order)`. In the getting-started example, `api-0` contributes three events
+(positions 0–2) and `api-1`'s two events follow at positions 3 and 4, so the
+`api-1` match reports `[3, 4]`. Match identity is the partition plus its
+participating indices.
+
+If you need to map indices back onto an original dataframe, sort the frame by
+`(partition, ts)` and use `assume_sorted=True` so the indices line up with rows —
+see [loading data](loading-data.md#mapping-matches-back-to-your-rows).
 
 ## Next
 

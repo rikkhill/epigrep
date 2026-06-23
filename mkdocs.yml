@@ -43,8 +43,10 @@ nav:
   - What is Epigrep?: index.md
   - Getting started: getting-started.md
   - Events and partitions: events-and-partitions.md
+  - Loading data: loading-data.md
   - Patterns: patterns.md
   - Semantics: semantics.md
   - Explanations: explanations.md
   - Logs-first recipes: logs-first-recipes.md
+  - Command-line interface: cli.md
   - Limitations: limitations.md

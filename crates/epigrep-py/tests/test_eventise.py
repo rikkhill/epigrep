@@ -126,20 +126,28 @@ def test_events_from_frame_rejects_non_frame():
 
 
 def test_presorted_round_trip_indices_align_with_frame_rows():
-    """The documented dataframe round-trip: pre-sort + assume_sorted -> Match
-    indices index frame rows directly."""
+    """The documented dataframe round-trip: sort by (partition, ts) +
+    assume_sorted -> Match.indices index frame rows directly, even across
+    partitions (indices are global into the sorted stream, not partition-local)."""
     pd = pytest.importorskip("pandas")
+    # Deliberately unsorted, and the match lives in the *second* partition so a
+    # partition-local index ([0, 1]) would differ from the global one ([2, 3]).
     frame = pd.DataFrame(
         [
-            {"partition": "svc", "ts": 0, "typ": "deploy"},
-            {"partition": "svc", "ts": 50, "typ": "oom_killed"},
+            {"partition": "p2", "ts": 50, "typ": "oom_killed"},
+            {"partition": "p1", "ts": 1, "typ": "noise"},
+            {"partition": "p2", "ts": 0, "typ": "deploy"},
+            {"partition": "p1", "ts": 0, "typ": "noise"},
         ]
     )
+    frame_sorted = frame.sort_values(["partition", "ts"]).reset_index(drop=True)
     events = events_from_frame(
-        frame, partition_col="partition", ts_col="ts", type_col="typ"
+        frame_sorted, partition_col="partition", ts_col="ts", type_col="typ", sort=False
     )
     pattern = Pattern.event("deploy").then("oom_killed", within=120).build()
     matches = match(pattern, events, assume_sorted=True)
     assert len(matches) == 1
-    rows = frame.iloc[matches[0].indices]
+    assert list(matches[0].indices) == [2, 3]  # global, not partition-local
+    rows = frame_sorted.iloc[matches[0].indices]
     assert list(rows["typ"]) == ["deploy", "oom_killed"]
+    assert list(rows["partition"]) == ["p2", "p2"]

@@ -146,3 +146,90 @@ def test_missing_required_field_exits_error(tmp_path, pattern_file, capsys):
     code = cli.main(["match", "--pattern-json", str(pattern_file), str(data)])
     assert code == cli.EXIT_ERROR
     assert "typ" in capsys.readouterr().err
+
+
+CSV_TEXT = (
+    "partition,ts,typ\n"
+    "api-0,0,config_reload\n"
+    "api-0,30,readiness_success\n"
+    "api-0,70,oom_killed\n"
+    "api-1,0,config_reload\n"
+    "api-1,90,oom_killed\n"
+)
+
+
+def test_match_reads_csv_inferred_from_extension(tmp_path, pattern_file, capsys):
+    data = tmp_path / "events.csv"
+    data.write_text(CSV_TEXT)
+    code = cli.main(["match", "--pattern-json", str(pattern_file), str(data)])
+    out = json.loads(capsys.readouterr().out)
+    assert code == cli.EXIT_OK
+    assert [row["partition"] for row in out] == ["api-1"]
+
+
+def test_match_reads_csv_with_custom_columns(tmp_path, pattern_file, capsys):
+    data = tmp_path / "events.txt"  # extension would infer jsonl; force csv
+    data.write_text("pod,t,kind\napi-1,0,config_reload\napi-1,90,oom_killed\n")
+    code = cli.main(
+        [
+            "match",
+            "--pattern-json",
+            str(pattern_file),
+            "--input-format",
+            "csv",
+            "--partition-col",
+            "pod",
+            "--ts-col",
+            "t",
+            "--type-col",
+            "kind",
+            str(data),
+        ]
+    )
+    assert code == cli.EXIT_OK
+    assert len(json.loads(capsys.readouterr().out)) == 1
+
+
+def test_csv_missing_required_column_exits_error(tmp_path, pattern_file, capsys):
+    data = tmp_path / "events.csv"
+    data.write_text("partition,ts\napi-1,0\n")  # no 'typ'
+    code = cli.main(["match", "--pattern-json", str(pattern_file), str(data)])
+    assert code == cli.EXIT_ERROR
+    assert "typ" in capsys.readouterr().err
+
+
+def test_schema_over_csv(tmp_path, capsys):
+    data = tmp_path / "events.csv"
+    data.write_text(CSV_TEXT)
+    code = cli.main(["schema", str(data)])
+    schema = json.loads(capsys.readouterr().out)
+    assert code == cli.EXIT_OK
+    assert schema["event_count"] == 5
+    assert set(schema["partitions"]) == {"api-0", "api-1"}
+
+
+def test_match_reads_parquet(tmp_path, pattern_file, capsys):
+    pa = pytest.importorskip("pyarrow")
+    import pyarrow.parquet as pq
+
+    table = pa.table(
+        {
+            "partition": ["api-1", "api-1"],
+            "ts": [0, 90],
+            "typ": ["config_reload", "oom_killed"],
+        }
+    )
+    data = tmp_path / "events.parquet"
+    pq.write_table(table, data)
+    code = cli.main(["match", "--pattern-json", str(pattern_file), str(data)])
+    out = json.loads(capsys.readouterr().out)
+    assert code == cli.EXIT_OK
+    assert [row["partition"] for row in out] == ["api-1"]
+
+
+def test_parquet_from_stdin_exits_error(pattern_file, capsys):
+    code = cli.main(
+        ["match", "--pattern-json", str(pattern_file), "--input-format", "parquet", "-"]
+    )
+    assert code == cli.EXIT_ERROR
+    assert "parquet" in capsys.readouterr().err

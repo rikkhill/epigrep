@@ -37,6 +37,33 @@ standard input, so the CLI drops into pipelines:
 cat events.jsonl | epigrep schema -
 ```
 
+## CSV and parquet
+
+CSV and parquet inputs are also supported. Their rows are **flat records** — one
+column each for the partition, timestamp, and type, and the rest become event
+attributes. The format is inferred from the file extension (`.csv`, `.parquet` /
+`.pq`), or set it explicitly with `--input-format`:
+
+```sh
+epigrep match --pattern-json pattern.json events.csv
+epigrep schema events.parquet
+```
+
+By default the columns are `partition`, `ts`, and `typ`; map other names with
+`--partition-col` / `--ts-col` / `--type-col`, and restrict which remaining
+columns become attributes with `--attr-cols a,b,c`:
+
+```sh
+epigrep match --pattern-json pattern.json \
+  --partition-col pod --ts-col t --type-col event app.csv
+```
+
+These reuse the same `eventise` ingestion primitive as the
+[Python API](loading-data.md), so behaviour matches. Two notes: CSV values arrive
+as strings (timestamps are parsed to integers; numeric *attributes* stay strings,
+where parquet preserves real types), and parquet must be a file path — it cannot
+be read from stdin.
+
 ## Patterns
 
 A pattern comes from one of two flags:

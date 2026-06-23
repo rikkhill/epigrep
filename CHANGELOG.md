@@ -24,7 +24,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `epigrep` command-line interface (`epigrep` console script / `python -m
   epigrep`) with `match`, `explain`, and `schema` subcommands over JSONL (file or
   stdin), JSON and table output, and grep-style exit codes (`0` match, `1` no
-  match, `2` error).
+  match, `2` error). CSV and parquet inputs are also accepted (`--input-format`,
+  or inferred from the extension), mapped to events by `--partition-col` /
+  `--ts-col` / `--type-col` / `--attr-cols` via the same `eventise` primitive.
 - `epigrep.datasets`: an SPMF sequence-database loader (`load_spmf` /
   `load_spmf_file`) plus a bundled four-sequence sample and an
   `examples/datasets/spmf-sample.txt` fixture, with a ground-truth

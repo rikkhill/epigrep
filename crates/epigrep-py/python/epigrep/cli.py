@@ -8,9 +8,13 @@ model:
   * ``epigrep schema``  — summarise what event types / attributes / partitions
                           a stream contains (the "what can I even query" step)
 
-Data is read as JSONL: one event object per line, ``{"partition", "ts", "typ",
-"attrs"}`` (``attrs`` optional) — the same shape as the bundled examples. Pass a
-path, ``-``, or nothing to read from stdin.
+Data is read as JSONL by default: one event object per line, ``{"partition",
+"ts", "typ", "attrs"}`` (``attrs`` optional) — the same shape as the bundled
+examples. CSV and parquet are also supported (``--input-format``, or inferred
+from the file extension): their flat rows are mapped to events by the
+``--partition-col`` / ``--ts-col`` / ``--type-col`` / ``--attr-cols`` options,
+reusing the same eventise primitive as the Python API. Pass a path, ``-``, or
+nothing to read from stdin (parquet requires a file path).
 
 Patterns come from ``--pattern-json FILE`` (the stable JSON AST) or, marked
 experimental, ``--pattern TEXT`` (the provisional text DSL).
@@ -23,6 +27,8 @@ and ``schema`` return ``0`` on success and ``2`` on error.
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import sys
 from pathlib import Path
@@ -32,6 +38,7 @@ from ._core import Event, parse_pattern, pattern_from_json
 from . import explain as run_explain
 from . import match as run_match
 from . import near_miss_summary, schema as run_schema
+from .eventise import eventise, events_from_frame
 
 EXIT_OK = 0
 EXIT_NO_MATCH = 1
@@ -42,15 +49,44 @@ class CliError(Exception):
     """A user-facing error: reported to stderr, exits with code 2."""
 
 
-def _read_events(data_arg: Optional[str]) -> List[Event]:
+def _read_text(data_arg: Optional[str]) -> str:
     if data_arg in (None, "-"):
-        text = sys.stdin.read()
-    else:
-        try:
-            text = Path(data_arg).read_text()
-        except OSError as exc:
-            raise CliError(f"cannot read {data_arg}: {exc}") from exc
+        return sys.stdin.read()
+    try:
+        return Path(data_arg).read_text()
+    except OSError as exc:
+        raise CliError(f"cannot read {data_arg}: {exc}") from exc
 
+
+def _resolve_format(data_arg: Optional[str], requested: str) -> str:
+    """Pick the input format: an explicit choice, or inferred from extension."""
+    if requested != "auto":
+        return requested
+    if data_arg and data_arg != "-":
+        suffix = Path(data_arg).suffix.lower()
+        if suffix == ".csv":
+            return "csv"
+        if suffix in (".parquet", ".pq"):
+            return "parquet"
+    return "jsonl"
+
+
+def _attr_cols(args: argparse.Namespace) -> Optional[List[str]]:
+    if not args.attr_cols:
+        return None
+    return [name.strip() for name in args.attr_cols.split(",") if name.strip()]
+
+
+def _require_columns(present, args: argparse.Namespace, kind: str) -> None:
+    for column in (args.partition_col, args.ts_col, args.type_col):
+        if column not in present:
+            raise CliError(
+                f"{kind} is missing required column {column!r}; "
+                f"columns present: {list(present)}"
+            )
+
+
+def _read_jsonl_events(text: str) -> List[Event]:
     events: List[Event] = []
     for lineno, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
@@ -77,6 +113,58 @@ def _read_events(data_arg: Optional[str]) -> List[Event]:
         except (TypeError, ValueError) as exc:
             raise CliError(f"line {lineno}: {exc}") from exc
     return events
+
+
+def _read_csv_events(text: str, args: argparse.Namespace) -> List[Event]:
+    reader = csv.DictReader(io.StringIO(text))
+    if reader.fieldnames is None:
+        return []
+    _require_columns(reader.fieldnames, args, "CSV")
+    try:
+        return eventise(
+            list(reader),
+            partition=args.partition_col,
+            ts=args.ts_col,
+            typ=args.type_col,
+            attrs=_attr_cols(args),
+        )
+    except (TypeError, ValueError) as exc:
+        raise CliError(f"CSV: {exc}") from exc
+
+
+def _read_parquet_events(data_arg: Optional[str], args: argparse.Namespace) -> List[Event]:
+    if data_arg in (None, "-"):
+        raise CliError("parquet input must be a file path, not stdin")
+    try:
+        import pyarrow.parquet as pq
+    except ImportError as exc:
+        raise CliError("reading parquet requires pyarrow (pip install pyarrow)") from exc
+    try:
+        table = pq.read_table(data_arg)
+    except Exception as exc:  # pyarrow raises a variety of types
+        raise CliError(f"cannot read parquet {data_arg}: {exc}") from exc
+    _require_columns(table.column_names, args, "parquet")
+    try:
+        return events_from_frame(
+            table,
+            partition_col=args.partition_col,
+            ts_col=args.ts_col,
+            type_col=args.type_col,
+            attr_cols=_attr_cols(args),
+        )
+    except (TypeError, ValueError) as exc:
+        raise CliError(f"parquet: {exc}") from exc
+
+
+def _read_events(data_arg: Optional[str], args: argparse.Namespace) -> List[Event]:
+    fmt = _resolve_format(data_arg, args.input_format)
+    if fmt == "jsonl":
+        return _read_jsonl_events(_read_text(data_arg))
+    if fmt == "csv":
+        return _read_csv_events(_read_text(data_arg), args)
+    if fmt == "parquet":
+        return _read_parquet_events(data_arg, args)
+    raise CliError(f"unknown input format: {fmt}")  # pragma: no cover
 
 
 def _load_pattern(args: argparse.Namespace):
@@ -162,7 +250,7 @@ def _print_schema_table(schema: dict) -> None:
 
 def _cmd_match(args: argparse.Namespace) -> int:
     pattern = _load_pattern(args)
-    events = _read_events(args.data)
+    events = _read_events(args.data, args)
     matches = run_match(
         pattern, events, exhaustive=args.exhaustive, assume_sorted=args.assume_sorted
     )
@@ -173,14 +261,14 @@ def _cmd_match(args: argparse.Namespace) -> int:
 
 def _cmd_explain(args: argparse.Namespace) -> int:
     pattern = _load_pattern(args)
-    events = _read_events(args.data)
+    events = _read_events(args.data, args)
     misses = run_explain(pattern, events, assume_sorted=args.assume_sorted)
     _emit(_near_miss_rows(misses), args.format, _print_near_miss_table)
     return EXIT_OK
 
 
 def _cmd_schema(args: argparse.Namespace) -> int:
-    events = _read_events(args.data)
+    events = _read_events(args.data, args)
     schema = run_schema(events)
     if args.format == "json":
         json.dump(schema, sys.stdout, indent=2, default=str)
@@ -210,13 +298,42 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
         "data",
         nargs="?",
         default=None,
-        help="JSONL events file, or - / omitted for stdin",
+        help="events file, or - / omitted for stdin",
     )
     parser.add_argument(
         "--format",
         choices=("json", "table"),
         default="json",
         help="output format (default: json)",
+    )
+    parser.add_argument(
+        "--input-format",
+        choices=("auto", "jsonl", "csv", "parquet"),
+        default="auto",
+        help="input format (default: auto — inferred from file extension, else "
+        "jsonl). jsonl events are {partition, ts, typ, attrs}; csv/parquet rows "
+        "are flat records mapped by the --*-col options",
+    )
+    parser.add_argument(
+        "--partition-col",
+        default="partition",
+        help="csv/parquet column for the partition key (default: partition)",
+    )
+    parser.add_argument(
+        "--ts-col",
+        default="ts",
+        help="csv/parquet column for the timestamp (default: ts)",
+    )
+    parser.add_argument(
+        "--type-col",
+        default="typ",
+        help="csv/parquet column for the event type (default: typ)",
+    )
+    parser.add_argument(
+        "--attr-cols",
+        default=None,
+        help="comma-separated csv/parquet columns to keep as attributes "
+        "(default: every column except the three mapped ones)",
     )
     parser.add_argument(
         "--assume-sorted",

@@ -1,0 +1,65 @@
+{
+  "name": "numeric-float-predicate",
+  "semantics_clause": "Numeric comparisons hold across int and float values.",
+  "rationale": "B has float val=3.5 and B[val >= 3] (an int bound) matches.",
+  "events": [
+    {
+      "partition": "a",
+      "ts": 0,
+      "typ": "A"
+    },
+    {
+      "partition": "a",
+      "ts": 1,
+      "typ": "B",
+      "attrs": {
+        "val": 3.5
+      }
+    }
+  ],
+  "pattern_json": {
+    "steps": [
+      {
+        "atom": {
+          "event_type": "A",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": null
+      },
+      {
+        "atom": {
+          "event_type": "B",
+          "predicates": [
+            {
+              "attribute": "val",
+              "operator": "Gte",
+              "value": {
+                "Int": 3
+              }
+            }
+          ],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": {
+          "max_elapsed": null,
+          "absence": []
+        }
+      }
+    ],
+    "consumption": "FirstSuccessorPerStart"
+  },
+  "expected_matches": [
+    {
+      "partition": "a",
+      "indices": [
+        0,
+        1
+      ],
+      "captures": {}
+    }
+  ],
+  "expected_near_misses": []
+}

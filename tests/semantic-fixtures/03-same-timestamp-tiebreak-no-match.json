@@ -1,0 +1,53 @@
+{
+  "name": "same-timestamp-tiebreak-no-match",
+  "semantics_clause": "Ordering: equal timestamps are ordered by input position.",
+  "rationale": "B appears before A at the same ts, so there is no B strictly after A.",
+  "events": [
+    {
+      "partition": "a",
+      "ts": 0,
+      "typ": "B"
+    },
+    {
+      "partition": "a",
+      "ts": 0,
+      "typ": "A"
+    }
+  ],
+  "pattern_json": {
+    "steps": [
+      {
+        "atom": {
+          "event_type": "A",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": null
+      },
+      {
+        "atom": {
+          "event_type": "B",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": {
+          "max_elapsed": null,
+          "absence": []
+        }
+      }
+    ],
+    "consumption": "FirstSuccessorPerStart"
+  },
+  "expected_matches": [],
+  "expected_near_misses": [
+    {
+      "partition": "a",
+      "indices": [
+        1
+      ],
+      "reason": "no_successor"
+    }
+  ]
+}

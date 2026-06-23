@@ -1,0 +1,54 @@
+{
+  "name": "zero-duration-window",
+  "semantics_clause": "A within=0 window admits same-timestamp successors ordered after the start.",
+  "rationale": "B shares A's timestamp but follows it in input order; elapsed 0 <= 0 matches.",
+  "events": [
+    {
+      "partition": "a",
+      "ts": 0,
+      "typ": "A"
+    },
+    {
+      "partition": "a",
+      "ts": 0,
+      "typ": "B"
+    }
+  ],
+  "pattern_json": {
+    "steps": [
+      {
+        "atom": {
+          "event_type": "A",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": null
+      },
+      {
+        "atom": {
+          "event_type": "B",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": {
+          "max_elapsed": 0,
+          "absence": []
+        }
+      }
+    ],
+    "consumption": "FirstSuccessorPerStart"
+  },
+  "expected_matches": [
+    {
+      "partition": "a",
+      "indices": [
+        0,
+        1
+      ],
+      "captures": {}
+    }
+  ],
+  "expected_near_misses": []
+}

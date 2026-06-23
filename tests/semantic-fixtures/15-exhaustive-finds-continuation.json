@@ -1,0 +1,82 @@
+{
+  "name": "exhaustive-finds-continuation",
+  "semantics_clause": "ExhaustivePerStart explores every successor, so the later B path matches.",
+  "rationale": "The same start that dead-ends under first-successor finds A -> B(ts5) -> C(ts5) under exhaustive consumption.",
+  "events": [
+    {
+      "partition": "p",
+      "ts": 0,
+      "typ": "A"
+    },
+    {
+      "partition": "p",
+      "ts": 0,
+      "typ": "B"
+    },
+    {
+      "partition": "p",
+      "ts": 5,
+      "typ": "C"
+    },
+    {
+      "partition": "p",
+      "ts": 5,
+      "typ": "B"
+    },
+    {
+      "partition": "p",
+      "ts": 5,
+      "typ": "C"
+    }
+  ],
+  "pattern_json": {
+    "steps": [
+      {
+        "atom": {
+          "event_type": "A",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": null
+      },
+      {
+        "atom": {
+          "event_type": "B",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": {
+          "max_elapsed": null,
+          "absence": []
+        }
+      },
+      {
+        "atom": {
+          "event_type": "C",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": {
+          "max_elapsed": 1,
+          "absence": []
+        }
+      }
+    ],
+    "consumption": "ExhaustivePerStart"
+  },
+  "expected_matches": [
+    {
+      "partition": "p",
+      "indices": [
+        0,
+        3,
+        4
+      ],
+      "captures": {}
+    }
+  ],
+  "expected_near_misses": []
+}

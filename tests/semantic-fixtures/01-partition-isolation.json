@@ -1,0 +1,67 @@
+{
+  "name": "partition-isolation",
+  "semantics_clause": "Partitioning: matches never cross partitions.",
+  "rationale": "Partition 'a' has A then B and matches; partition 'b' has a lone A that cannot borrow partition 'a''s B. No cross-partition match is produced.",
+  "events": [
+    {
+      "partition": "a",
+      "ts": 0,
+      "typ": "A"
+    },
+    {
+      "partition": "a",
+      "ts": 1,
+      "typ": "B"
+    },
+    {
+      "partition": "b",
+      "ts": 0,
+      "typ": "A"
+    }
+  ],
+  "pattern_json": {
+    "steps": [
+      {
+        "atom": {
+          "event_type": "A",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": null
+      },
+      {
+        "atom": {
+          "event_type": "B",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": {
+          "max_elapsed": null,
+          "absence": []
+        }
+      }
+    ],
+    "consumption": "FirstSuccessorPerStart"
+  },
+  "expected_matches": [
+    {
+      "partition": "a",
+      "indices": [
+        0,
+        1
+      ],
+      "captures": {}
+    }
+  ],
+  "expected_near_misses": [
+    {
+      "partition": "b",
+      "indices": [
+        2
+      ],
+      "reason": "no_successor"
+    }
+  ]
+}

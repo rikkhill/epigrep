@@ -1,0 +1,59 @@
+{
+  "name": "non-contiguous-match",
+  "semantics_clause": "Sequencing matches non-contiguous events.",
+  "rationale": "An unrelated X sits between A and B; A -> B still matches across it.",
+  "events": [
+    {
+      "partition": "a",
+      "ts": 0,
+      "typ": "A"
+    },
+    {
+      "partition": "a",
+      "ts": 1,
+      "typ": "X"
+    },
+    {
+      "partition": "a",
+      "ts": 2,
+      "typ": "B"
+    }
+  ],
+  "pattern_json": {
+    "steps": [
+      {
+        "atom": {
+          "event_type": "A",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": null
+      },
+      {
+        "atom": {
+          "event_type": "B",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": {
+          "max_elapsed": null,
+          "absence": []
+        }
+      }
+    ],
+    "consumption": "FirstSuccessorPerStart"
+  },
+  "expected_matches": [
+    {
+      "partition": "a",
+      "indices": [
+        0,
+        2
+      ],
+      "captures": {}
+    }
+  ],
+  "expected_near_misses": []
+}

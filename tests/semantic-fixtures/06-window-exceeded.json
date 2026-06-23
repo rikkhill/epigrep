@@ -1,0 +1,53 @@
+{
+  "name": "window-exceeded",
+  "semantics_clause": "Windows are exclusive past the bound: elapsed > within fails.",
+  "rationale": "B is 6 units after A with within=5; the only candidate is just out of window, giving a window_exceeded near-miss.",
+  "events": [
+    {
+      "partition": "a",
+      "ts": 0,
+      "typ": "A"
+    },
+    {
+      "partition": "a",
+      "ts": 6,
+      "typ": "B"
+    }
+  ],
+  "pattern_json": {
+    "steps": [
+      {
+        "atom": {
+          "event_type": "A",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": null
+      },
+      {
+        "atom": {
+          "event_type": "B",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": {
+          "max_elapsed": 5,
+          "absence": []
+        }
+      }
+    ],
+    "consumption": "FirstSuccessorPerStart"
+  },
+  "expected_matches": [],
+  "expected_near_misses": [
+    {
+      "partition": "a",
+      "indices": [
+        0
+      ],
+      "reason": "window_exceeded"
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "name": "first-successor-dead-end",
+  "semantics_clause": "FirstSuccessorPerStart commits to the first successor and does not backtrack; explanation is existence-based and consumption-independent.",
+  "rationale": "A commits to the first B (ts 0) and no C lands within 1 of it, so match() returns nothing. explain() still reports NO near-miss, because a full match exists from this start via the later B (explanation is existence-based, not consumption-based) \u2014 the contrast with exhaustive-finds-continuation.",
+  "events": [
+    {
+      "partition": "p",
+      "ts": 0,
+      "typ": "A"
+    },
+    {
+      "partition": "p",
+      "ts": 0,
+      "typ": "B"
+    },
+    {
+      "partition": "p",
+      "ts": 5,
+      "typ": "C"
+    },
+    {
+      "partition": "p",
+      "ts": 5,
+      "typ": "B"
+    },
+    {
+      "partition": "p",
+      "ts": 5,
+      "typ": "C"
+    }
+  ],
+  "pattern_json": {
+    "steps": [
+      {
+        "atom": {
+          "event_type": "A",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": null
+      },
+      {
+        "atom": {
+          "event_type": "B",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": {
+          "max_elapsed": null,
+          "absence": []
+        }
+      },
+      {
+        "atom": {
+          "event_type": "C",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": {
+          "max_elapsed": 1,
+          "absence": []
+        }
+      }
+    ],
+    "consumption": "FirstSuccessorPerStart"
+  },
+  "expected_matches": [],
+  "expected_near_misses": []
+}

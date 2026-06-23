@@ -1,0 +1,67 @@
+{
+  "name": "overlapping-starts-reported",
+  "semantics_clause": "Overlapping matches from distinct starts are all reported.",
+  "rationale": "Two A starts each reach the same later B; both [0,2] and [1,2] are returned.",
+  "events": [
+    {
+      "partition": "a",
+      "ts": 0,
+      "typ": "A"
+    },
+    {
+      "partition": "a",
+      "ts": 1,
+      "typ": "A"
+    },
+    {
+      "partition": "a",
+      "ts": 2,
+      "typ": "B"
+    }
+  ],
+  "pattern_json": {
+    "steps": [
+      {
+        "atom": {
+          "event_type": "A",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": null
+      },
+      {
+        "atom": {
+          "event_type": "B",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": {
+          "max_elapsed": null,
+          "absence": []
+        }
+      }
+    ],
+    "consumption": "FirstSuccessorPerStart"
+  },
+  "expected_matches": [
+    {
+      "partition": "a",
+      "indices": [
+        0,
+        2
+      ],
+      "captures": {}
+    },
+    {
+      "partition": "a",
+      "indices": [
+        1,
+        2
+      ],
+      "captures": {}
+    }
+  ],
+  "expected_near_misses": []
+}

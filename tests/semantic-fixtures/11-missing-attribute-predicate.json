@@ -1,0 +1,61 @@
+{
+  "name": "missing-attribute-predicate",
+  "semantics_clause": "A predicate over a missing attribute fails (no match).",
+  "rationale": "B carries no 'sev' attribute, so B[sev >= 3] cannot be satisfied.",
+  "events": [
+    {
+      "partition": "a",
+      "ts": 0,
+      "typ": "A"
+    },
+    {
+      "partition": "a",
+      "ts": 1,
+      "typ": "B"
+    }
+  ],
+  "pattern_json": {
+    "steps": [
+      {
+        "atom": {
+          "event_type": "A",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": null
+      },
+      {
+        "atom": {
+          "event_type": "B",
+          "predicates": [
+            {
+              "attribute": "sev",
+              "operator": "Gte",
+              "value": {
+                "Int": 3
+              }
+            }
+          ],
+          "reference_predicates": [],
+          "captures": []
+        },
+        "transition_from_previous": {
+          "max_elapsed": null,
+          "absence": []
+        }
+      }
+    ],
+    "consumption": "FirstSuccessorPerStart"
+  },
+  "expected_matches": [],
+  "expected_near_misses": [
+    {
+      "partition": "a",
+      "indices": [
+        0
+      ],
+      "reason": "predicate_failed"
+    }
+  ]
+}

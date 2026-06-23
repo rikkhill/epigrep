@@ -1,0 +1,97 @@
+{
+  "name": "capture-and-reference-equality",
+  "semantics_clause": "Captures bind a value; a reference predicate constrains a later event to it.",
+  "rationale": "deploy captures pod as $p; oom must have the same pod. 'a' matches and captures pod=api; 'b' has a mismatched oom pod, a predicate_failed near-miss.",
+  "events": [
+    {
+      "partition": "a",
+      "ts": 0,
+      "typ": "deploy",
+      "attrs": {
+        "pod": "api"
+      }
+    },
+    {
+      "partition": "a",
+      "ts": 1,
+      "typ": "oom",
+      "attrs": {
+        "pod": "api"
+      }
+    },
+    {
+      "partition": "b",
+      "ts": 0,
+      "typ": "deploy",
+      "attrs": {
+        "pod": "worker"
+      }
+    },
+    {
+      "partition": "b",
+      "ts": 1,
+      "typ": "oom",
+      "attrs": {
+        "pod": "db"
+      }
+    }
+  ],
+  "pattern_json": {
+    "steps": [
+      {
+        "atom": {
+          "event_type": "deploy",
+          "predicates": [],
+          "reference_predicates": [],
+          "captures": [
+            {
+              "name": "p",
+              "attribute": "pod"
+            }
+          ]
+        },
+        "transition_from_previous": null
+      },
+      {
+        "atom": {
+          "event_type": "oom",
+          "predicates": [],
+          "reference_predicates": [
+            {
+              "attribute": "pod",
+              "operator": "Eq",
+              "binding": "p"
+            }
+          ],
+          "captures": []
+        },
+        "transition_from_previous": {
+          "max_elapsed": null,
+          "absence": []
+        }
+      }
+    ],
+    "consumption": "FirstSuccessorPerStart"
+  },
+  "expected_matches": [
+    {
+      "partition": "a",
+      "indices": [
+        0,
+        1
+      ],
+      "captures": {
+        "p": "api"
+      }
+    }
+  ],
+  "expected_near_misses": [
+    {
+      "partition": "b",
+      "indices": [
+        2
+      ],
+      "reason": "predicate_failed"
+    }
+  ]
+}

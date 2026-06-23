@@ -48,3 +48,12 @@ python tests/semantic-fixtures/_generate.py
 The expected values are the source of truth: a future semantic change should
 require deliberately updating these fixtures (and the semantics page), not merely
 adjusting implementation tests.
+
+## Related: metamorphic properties
+
+Alongside these example-based goldens, `crates/epigrep-core/src/tests.rs`
+(`property_tests`) holds proptest metamorphic properties that transform generated
+inputs in ways whose effect is fixed by the contract — JSON round-trip,
+timestamp translation, partition rename/duplication, irrelevant-event insertion,
+and exhaustive-mode window-widening monotonicity — each normalising matches by a
+stable per-event id so index renumbering is not mistaken for a behaviour change.

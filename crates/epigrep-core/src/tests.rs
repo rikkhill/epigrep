@@ -669,6 +669,252 @@ mod property_tests {
             );
         }
     }
+
+    // ---- Metamorphic properties (pass 2 of the test-hardening strategy) ----
+    //
+    // Each transformation below changes the input in a way whose effect on the
+    // output is fixed by the semantics contract. Matches are normalised by a
+    // stable per-event id so that index renumbering (after insertion or
+    // duplication) cannot masquerade as a behavioural change. Properties that are
+    // false under FirstSuccessorPerStart's commitment (e.g. window monotonicity)
+    // are tested under ExhaustivePerStart, as the strategy notes.
+
+    /// Tag each event with a stable `__eid` the patterns never reference, so a
+    /// match can be identified by *which* events participate regardless of their
+    /// position after a transformation.
+    fn with_eids(events: Vec<Event>) -> Vec<Event> {
+        events
+            .into_iter()
+            .enumerate()
+            .map(|(index, event)| event.with_attr("__eid", Value::Int(index as i64)))
+            .collect()
+    }
+
+    fn eid(events: &[Event], index: EventIndex) -> i64 {
+        match events[index].attributes.get("__eid") {
+            Some(Value::Int(value)) => *value,
+            _ => panic!("event is missing its __eid tag"),
+        }
+    }
+
+    /// (partition, participating event ids, canonical bindings): stable across
+    /// index renumbering, and `Ord`, so it can go in a set for subset checks.
+    fn signature(events: &[Event], m: &Match) -> (String, Vec<i64>, String) {
+        (
+            m.partition.clone(),
+            m.participating_indices
+                .iter()
+                .map(|&index| eid(events, index))
+                .collect(),
+            serde_json::to_string(&m.bindings).unwrap(),
+        )
+    }
+
+    fn signatures(events: &[Event], pattern: &Pattern) -> Vec<(String, Vec<i64>, String)> {
+        let mut rows: Vec<_> = compiled_matches(events, pattern)
+            .iter()
+            .map(|m| signature(events, m))
+            .collect();
+        rows.sort();
+        rows
+    }
+
+    fn map_events(events: &[Event], f: impl FnMut(&Event) -> Event) -> Vec<Event> {
+        events.iter().map(f).collect()
+    }
+
+    fn relocate(event: &Event, partition: String, timestamp: Timestamp) -> Event {
+        let mut moved = Event::new(partition, timestamp, event.event_type.clone());
+        for (key, value) in &event.attributes {
+            moved = moved.with_attr(key.clone(), value.clone());
+        }
+        moved
+    }
+
+    /// Widen every transition window to unbounded, keeping absence guards.
+    fn widen_windows(pattern: &Pattern) -> Pattern {
+        let steps: Vec<Step> = pattern
+            .steps
+            .iter()
+            .map(|step| Step {
+                atom: step.atom.clone(),
+                transition_from_previous: step.transition_from_previous.as_ref().map(|t| {
+                    Transition {
+                        max_elapsed: None,
+                        absence: t.absence.clone(),
+                    }
+                }),
+            })
+            .collect();
+        Pattern::sequence(steps).with_consumption(pattern.consumption)
+    }
+
+    proptest! {
+        /// JSON round-trip preserves the pattern and its match/explain behaviour.
+        #[test]
+        fn json_round_trip_preserves_behaviour(
+            events in stream_strategy(),
+            pattern in pattern_strategy(),
+        ) {
+            let parsed = pattern_from_json(&pattern_to_json(&pattern))
+                .expect("a valid generated pattern round-trips");
+            prop_assert_eq!(&parsed, &pattern);
+            prop_assert_eq!(
+                compiled_matches(&events, &parsed),
+                compiled_matches(&events, &pattern)
+            );
+            prop_assert_eq!(
+                near_misses(&events, &parsed),
+                near_misses(&events, &pattern)
+            );
+        }
+
+        /// Shifting every timestamp by a constant preserves the participating
+        /// events and bindings, and shifts each match's span by the same amount.
+        #[test]
+        fn timestamp_translation_shifts_spans_and_preserves_structure(
+            events in stream_strategy(),
+            pattern in pattern_strategy(),
+            delta in 1_i64..=1000,
+        ) {
+            let shifted = map_events(&events, |event| {
+                relocate(event, event.partition.clone(), event.timestamp + delta)
+            });
+            let original = compiled_matches(&events, &pattern);
+            let translated = compiled_matches(&shifted, &pattern);
+
+            prop_assert_eq!(original.len(), translated.len());
+            for (before, after) in original.iter().zip(translated.iter()) {
+                prop_assert_eq!(&before.partition, &after.partition);
+                prop_assert_eq!(&before.participating_indices, &after.participating_indices);
+                prop_assert_eq!(&before.bindings, &after.bindings);
+                prop_assert_eq!(before.start_timestamp + delta, after.start_timestamp);
+                prop_assert_eq!(before.end_timestamp + delta, after.end_timestamp);
+            }
+        }
+
+        /// Renaming partitions order-preservingly preserves match structure,
+        /// changing only the partition label.
+        #[test]
+        fn partition_rename_preserves_structure(
+            events in stream_strategy(),
+            pattern in pattern_strategy(),
+        ) {
+            let renamed = map_events(&events, |event| {
+                relocate(event, format!("x-{}", event.partition), event.timestamp)
+            });
+            let original = compiled_matches(&events, &pattern);
+            let after = compiled_matches(&renamed, &pattern);
+
+            prop_assert_eq!(original.len(), after.len());
+            for (before, now) in original.iter().zip(after.iter()) {
+                prop_assert_eq!(format!("x-{}", before.partition), now.partition.clone());
+                prop_assert_eq!(&before.participating_indices, &now.participating_indices);
+                prop_assert_eq!(&before.bindings, &now.bindings);
+                prop_assert_eq!(before.start_timestamp, now.start_timestamp);
+            }
+        }
+
+        /// Duplicating a partition under a new name duplicates its matches
+        /// independently and leaves the other partitions untouched — no
+        /// cross-partition contamination.
+        #[test]
+        fn partition_duplication_is_independent(
+            events in stream_strategy(),
+            pattern in pattern_strategy(),
+        ) {
+            let tagged = with_eids(events);
+            // "p3" sorts after the generator's "p1"/"p2", so appending the copied
+            // block keeps the stream grouped-by-partition and time-sorted.
+            let mut combined = tagged.clone();
+            for event in tagged.iter().filter(|event| event.partition == "p1") {
+                combined.push(relocate(event, "p3".to_owned(), event.timestamp));
+            }
+
+            let strip = |rows: Vec<(String, Vec<i64>, String)>, keep_p3: bool| {
+                let mut out: Vec<(Vec<i64>, String)> = rows
+                    .into_iter()
+                    .filter(|(partition, _, _)| (partition == "p3") == keep_p3)
+                    .map(|(_, ids, bindings)| (ids, bindings))
+                    .collect();
+                out.sort();
+                out
+            };
+
+            let original = signatures(&tagged, &pattern);
+            let after = signatures(&combined, &pattern);
+
+            // The new "p3" matches mirror "p1"'s, by participating ids and bindings.
+            let original_p1: Vec<_> = original
+                .iter()
+                .filter(|row| row.0 == "p1")
+                .cloned()
+                .collect();
+            prop_assert_eq!(strip(after.clone(), true), strip(original_p1, false));
+
+            // Every non-p3 match is exactly as it was before duplication.
+            let after_non_p3: Vec<_> = after
+                .iter()
+                .filter(|row| row.0 != "p3")
+                .cloned()
+                .collect();
+            prop_assert_eq!(after_non_p3, original);
+        }
+
+        /// Inserting events of a type that appears nowhere in the pattern (steps
+        /// or absence atoms) cannot change any match's identity. Normalised by
+        /// event id so the index renumbering from insertion is ignored.
+        #[test]
+        fn irrelevant_event_insertion_is_inert(
+            events in stream_strategy(),
+            pattern in pattern_strategy(),
+            noise in prop::collection::vec(
+                (prop_oneof![Just("p1"), Just("p2")], 0_i64..=8),
+                0..=6,
+            ),
+        ) {
+            // "Z" is never produced by the atom/event generators, so it can match
+            // no step and block no absence guard.
+            let tagged = with_eids(events);
+            let mut combined = tagged.clone();
+            for (offset, (partition, timestamp)) in noise.into_iter().enumerate() {
+                let marker = Event::new(partition, timestamp, "Z")
+                    .with_attr("__eid", Value::Int(1_000_000 + offset as i64));
+                combined.push(marker);
+            }
+            // Re-establish grouped-by-partition, time-sorted order (stable, so the
+            // original events keep their relative input-order tie-break).
+            combined.sort_by(|left, right| {
+                left.partition
+                    .cmp(&right.partition)
+                    .then(left.timestamp.cmp(&right.timestamp))
+            });
+
+            prop_assert_eq!(signatures(&combined, &pattern), signatures(&tagged, &pattern));
+        }
+
+        /// Under ExhaustivePerStart, widening transition windows can only add
+        /// matches: every match at the narrow windows still holds when widened.
+        #[test]
+        fn exhaustive_window_widening_is_monotonic(
+            events in stream_strategy(),
+            pattern in pattern_strategy(),
+        ) {
+            let tagged = with_eids(events);
+            let narrow = pattern.with_consumption(MatchConsumption::ExhaustivePerStart);
+            let wide = widen_windows(&narrow);
+
+            let narrow_set: std::collections::BTreeSet<_> =
+                signatures(&tagged, &narrow).into_iter().collect();
+            let wide_set: std::collections::BTreeSet<_> =
+                signatures(&tagged, &wide).into_iter().collect();
+
+            prop_assert!(
+                narrow_set.is_subset(&wide_set),
+                "widening windows dropped matches under exhaustive consumption"
+            );
+        }
+    }
 }
 
 #[test]

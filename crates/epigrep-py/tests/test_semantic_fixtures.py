@@ -80,3 +80,20 @@ def test_compiled_oracle_parity(path):
     compiled = match_key(epigrep.match(pattern, events, assume_sorted=True))
     oracle = match_key(epigrep.match(pattern, events, oracle=True, assume_sorted=True))
     assert compiled == oracle
+
+
+@pytest.mark.parametrize("path", fixture_paths(), ids=lambda p: p.stem)
+def test_json_ast_round_trip_through_python_surface(path):
+    """pattern -> to_json -> pattern_from_json preserves match/explain results,
+    exercising the builder/JSON/FFI surface, not just the core."""
+    fixture = load(path)
+    events = events_of(fixture)
+    pattern = epigrep.pattern_from_json(json.dumps(fixture["pattern_json"]))
+    reparsed = epigrep.pattern_from_json(pattern.to_json())
+
+    assert match_key(epigrep.match(reparsed, events)) == match_key(
+        epigrep.match(pattern, events)
+    )
+    assert near_miss_key(epigrep.explain(reparsed, events)) == near_miss_key(
+        epigrep.explain(pattern, events)
+    )

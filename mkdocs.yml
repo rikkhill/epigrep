@@ -49,4 +49,5 @@ nav:
   - Explanations: explanations.md
   - Logs-first recipes: logs-first-recipes.md
   - Command-line interface: cli.md
+  - Agent interface: agent-interface.md
   - Limitations: limitations.md

@@ -8,6 +8,11 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Experimental `epigrep.agent` surface: a thin, JSON-in/JSON-out wrapper
+  (`describe_schema`, `run`, `explain`) for LLM/agent use, where `run` validates
+  a JSON pattern AST and executes it in one call and bad input returns a
+  repairable `{"ok": False, "stage", "error"}` dict instead of raising. Outside
+  the 0.1 stability guarantee.
 - Eventisation primitive (`eventise`) turning record/tabular data into the sorted
   `Event` list the matcher expects, with `partition` / `ts` / `typ` given as keys
   or callables and attributes selected explicitly or by remainder. Numpy/pandas

@@ -4,7 +4,18 @@ The useful question is rarely "did it match?" but "why not?". `explain()` answer
 that for the starts that did not complete.
 
 ```python
-from epigrep import explain
+from epigrep import Event, Pattern, explain
+
+events = [
+    Event("api-0", 0, "config_reload"),
+    Event("api-0", 30, "readiness_success"),
+    Event("api-0", 70, "oom_killed"),
+]
+pattern = (
+    Pattern.event("config_reload")
+    .then("oom_killed", within=120, no="readiness_success")
+    .build()
+)
 
 for miss in explain(pattern, events):
     print(miss.partition, list(miss.indices), miss.reason)

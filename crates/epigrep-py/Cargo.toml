@@ -1,6 +1,6 @@
 [package]
 name = "epigrep-py"
-version = "0.1.0"
+version = "0.2.0"
 # Pinned to 2021 (not the workspace's 2024): pyo3 0.22's generated code is not
 # clean under edition 2024's unsafe_op_in_unsafe_fn lint.
 edition = "2021"

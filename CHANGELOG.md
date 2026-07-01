@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-07-01
+
 ### Added
 
 - Experimental `epigrep.agent` surface: a thin, JSON-in/JSON-out wrapper
@@ -51,6 +53,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   resolved `epigrep-py` version in `Cargo.lock`, not just the two manifests.
 - `docs/RELEASE-GATE.md` is now a durable next-release runbook rather than a
   one-off pre-1.0 gate.
+- Documentation is guarded against API drift: every runnable `python` snippet in
+  the READMEs and docs is executed against the installed package in CI, so a
+  renamed function or stale import in the docs fails tests instead of shipping.
 
 ## [0.1.0] — 2026-06-18
 
@@ -84,5 +89,6 @@ patterns over partitioned, timestamped event sequences.
   build from the source distribution. Requires Python ≥ 3.9.
 - Published via GitHub trusted publishing (OIDC); MIT licensed.
 
-[Unreleased]: https://github.com/rikkhill/epigrep/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/rikkhill/epigrep/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/rikkhill/epigrep/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/rikkhill/epigrep/releases/tag/v0.1.0
